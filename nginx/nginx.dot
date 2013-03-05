@@ -1,0 +1,12 @@
+digraph nginx {
+    node [
+        shape = "record",
+    ];
+
+    subgraph cluster_ngx_cycle_t {
+        label = "ngx_cycle_t";
+
+        node_ngx_cycle_t [label = "<conf_ctx>void : ****conf_ctx | \
+                                   <pool>ngx_pool_t : *pool"];
+    };
+};
