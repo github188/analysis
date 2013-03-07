@@ -9,6 +9,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/resource.h>
+#include <sys/select.h>
 #include <netinet/in.h>
 
 
@@ -117,8 +118,8 @@ typedef struct {
 int main(int argc, char *argv[])
 {
     int rslt = 0;
-    int lsn_fd = 0;
-    int reuseaddr = REUSEADDR;
+    int_t lsn_fd = 0;
+    int_t reuseaddr = REUSEADDR;
     struct sockaddr_in srv_addr = {
         .sin_family = AF_INET,
         .sin_port = htons(LSN_PORT),
@@ -126,7 +127,14 @@ int main(int argc, char *argv[])
         .sin_zero = {0},
     };
     struct rlimit rlmt = {0};
+    struct timeval io_wait_tv = {
+        5, 0,
+    };
+    int_t sockets_max = 0;
+    fd_set fds = {{0}};
+    int_t select_err = FALSE;
 
+    FD_ZERO(&fds);
     if (-1 == getrlimit(RLIMIT_NOFILE, &rlmt)) {
         goto GETRLIMIT_ERR;
     }
@@ -142,19 +150,67 @@ int main(int argc, char *argv[])
     {
         goto SETSOCKOPT_ERR;
     }
-    if (-1 == bind(lsn_fd, (struct sockaddr *)&srv_addr, sizeof(srv_addr)))
+    if (-1 == bind(lsn_fd,
+                   (struct sockaddr *)&srv_addr,
+                   sizeof(srv_addr)))
     {
         goto BIND_ERR;
+    }
+    if (-1 == getrlimit(RLIMIT_NOFILE, &rlmt)) {
+        goto GETRLIMIT_ERR;
+    }
+    sockets_max = (int_t)rlmt.rlim_cur;
+    fprintf(stdout, "max sockets: %d\n", sockets_max);
+    if (-1 == listen(lsn_fd, SOMAXCONN)) {
+        goto LISTEN_ERR;
+    }
+    fprintf(stdout, "max backlog: %d\n", SOMAXCONN);
+
+    while (TRUE) {
+        int nevents = 0;
+        
+        FD_SET(lsn_fd, &fds);
+        nevents = select(FD_SETSIZE + 1, &fds, NULL, NULL, &io_wait_tv);
+
+        if (0 == nevents) { // time out
+            continue;
+        }
+        if (-1 == nevents) {
+            select_err = TRUE;
+
+            break;
+        }
+
+        for (int i = 0; i < fds.fd_count; ++i) {
+            if (!FD_ISSET(fds.fd_array[i], &fds)) {
+                continue;
+            }
+
+            if (fd.fd_array[i] == lsn_fd) {
+            } else {
+            }
+        }
+    }
+    
+    if (select_err) {
+        goto SELECT_ERR;
     }
 
     do {
         break;
 
+SELECT_ERR:
+
+LISTEN_ERR:
+
+GETRLIMIT_ERR:
+
 BIND_ERR:
+
 SETSOCKOPT_ERR:
         close(lsn_fd);
+
 SOCKET_ERR:
-GETRLIMIT_ERR:
         rslt = -1;
     } while (0);
 
