@@ -125,9 +125,7 @@ void rm_node(list_t **pp_list, list_t *p_node)
 
     pp_curr = pp_list;
     while (*pp_curr) {
-        list_t *p_curr_entry = *pp_curr;
-
-        if (p_node == p_curr_entry) {
+        if (p_node == *pp_curr) {
             *pp_curr = (list_t *)*p_node;
             *p_node = NULL;
 
