@@ -119,20 +119,22 @@ typedef struct {
 typedef intptr_t list_t;
 
 static inline
-void rm_node(list_t *p_list, list_t node)
+void rm_node(list_t **pp_list, list_t *p_node)
 {
-    list_t *p_curr = NULL;
+    list_t **pp_curr = NULL;
 
-    p_curr = p_list;
-    while (*p_curr) {
-        list_t curr_node = *p_curr;
+    pp_curr = pp_list;
+    while (*pp_curr) {
+        list_t *p_curr_entry = *pp_curr;
 
-        if (node == curr_node) {
-            *p_curr = node;
+        if (p_node == p_curr_entry) {
+            *pp_curr = (list_t *)*p_node;
+            *p_node = NULL;
+
             break;
         }
 
-        p_curr = (list_t *)curr_node;
+        pp_curr = (list_t **)*pp_curr;
     }
 
     return;
@@ -140,17 +142,21 @@ void rm_node(list_t *p_list, list_t node)
 
 void test(void)
 {
+    list_t *p_list_head = NULL;
     list_t list[4];
     
+    p_list_head = &list[0];
     list[0] = (list_t)&list[1];
     list[1] = (list_t)&list[2];
     list[2] = (list_t)&list[3];
     list[3] = (list_t)NULL;
 
+    fprintf(stderr, "%p\n", p_list_head);
     for (int i = 0; i < 4; ++i) {
         fprintf(stderr, "%p\n", list[i]);
     }
-    rm_node(&list[0], list[1]);
+    rm_node(&p_list_head, &list[1]);
+    fprintf(stderr, "%p\n", p_list_head);
     for (int i = 0; i < 4; ++i) {
         fprintf(stderr, "%p\n", list[i]);
     }
