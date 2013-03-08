@@ -115,6 +115,48 @@ typedef struct {
 #define REUSEADDR       TRUE
 
 
+// 单链表
+typedef intptr_t list_t;
+
+static inline
+void rm_node(list_t *p_list, list_t node)
+{
+    list_t *p_curr = NULL;
+
+    p_curr = p_list;
+    while (*p_curr) {
+        list_t curr_node = *p_curr;
+
+        if (node == curr_node) {
+            *p_curr = node;
+            break;
+        }
+
+        p_curr = (list_t *)curr_node;
+    }
+
+    return;
+}
+
+void test(void)
+{
+    list_t list[4];
+    
+    list[0] = (list_t)&list[1];
+    list[1] = (list_t)&list[2];
+    list[2] = (list_t)&list[3];
+    list[3] = (list_t)NULL;
+
+    for (int i = 0; i < 4; ++i) {
+        fprintf(stderr, "%p\n", list[i]);
+    }
+    rm_node(&list[0], list[1]);
+    for (int i = 0; i < 4; ++i) {
+        fprintf(stderr, "%p\n", list[i]);
+    }
+}
+
+
 int main(int argc, char *argv[])
 {
     int rslt = 0;
@@ -133,7 +175,9 @@ int main(int argc, char *argv[])
     int_t sockets_max = 0;
     fd_set fds = {{0}};
     int_t select_err = FALSE;
+    int_t accept_err = FALSE;
 
+    test();
     FD_ZERO(&fds);
     if (-1 == getrlimit(RLIMIT_NOFILE, &rlmt)) {
         goto GETRLIMIT_ERR;
@@ -142,6 +186,8 @@ int main(int argc, char *argv[])
     if (-1 == lsn_fd) {
         goto SOCKET_ERR;
     }
+    fprintf(stdout, "listen fd: %d\n", lsn_fd);
+
     if (-1 == setsockopt(lsn_fd,
                          SOL_SOCKET,
                          SO_REUSEADDR,
@@ -150,27 +196,30 @@ int main(int argc, char *argv[])
     {
         goto SETSOCKOPT_ERR;
     }
+
     if (-1 == bind(lsn_fd,
                    (struct sockaddr *)&srv_addr,
                    sizeof(srv_addr)))
     {
         goto BIND_ERR;
     }
+
     if (-1 == getrlimit(RLIMIT_NOFILE, &rlmt)) {
         goto GETRLIMIT_ERR;
     }
     sockets_max = (int_t)rlmt.rlim_cur;
     fprintf(stdout, "max sockets: %d\n", sockets_max);
+
     if (-1 == listen(lsn_fd, SOMAXCONN)) {
         goto LISTEN_ERR;
     }
     fprintf(stdout, "max backlog: %d\n", SOMAXCONN);
+    FD_SET(lsn_fd, &fds);
 
     while (TRUE) {
         int nevents = 0;
         
-        FD_SET(lsn_fd, &fds);
-        nevents = select(FD_SETSIZE + 1, &fds, NULL, NULL, &io_wait_tv);
+        nevents = select(sockets_max + 1, &fds, NULL, NULL, &io_wait_tv);
 
         if (0 == nevents) { // time out
             continue;
@@ -181,17 +230,54 @@ int main(int argc, char *argv[])
             break;
         }
 
-        for (int i = 0; i < fds.fd_count; ++i) {
-            if (!FD_ISSET(fds.fd_array[i], &fds)) {
+        for (int i = 0; i < sockets_max; ++i) {
+            if (!FD_ISSET(i, &fds)) {
                 continue;
             }
 
-            if (fd.fd_array[i] == lsn_fd) {
+            if (i == lsn_fd) {
+                int cmnct_fd = 0;
+                
+                cmnct_fd = accept(lsn_fd, NULL, NULL);
+                if (-1 == cmnct_fd) {
+                    accept_err = TRUE;
+
+                    break;
+                }
+                FD_SET(cmnct_fd, &fds);
             } else {
+#define BUFFER      "HTTP/1.1 200 OK\r\n" \
+                    "Content-Length: 5\r\n" \
+                    "Connection: close\r\n" \
+                    "Content-Type: text/html\r\n\r\n" \
+                    "Hello"
+
+                ssize_t recved_size = 0;
+                char buf[1024] = {'\0'};
+
+                recved_size = recv(i, buf, 1024, 0);
+                if (0 == recved_size) {
+                    FD_CLR(i, &fds);
+                    close(i);
+                } else if (-1 == recved_size) {
+                    break;
+                } else {
+                    send(i, BUFFER, sizeof(BUFFER), 0);
+                }
+
+#undef BUFFER
             }
+        }
+
+        if (accept_err) {
+            break;
         }
     }
     
+    if (accept_err) {
+        goto ACCEPT_ERR;
+    }
+
     if (select_err) {
         goto SELECT_ERR;
     }
@@ -199,7 +285,13 @@ int main(int argc, char *argv[])
     do {
         break;
 
+ACCEPT_ERR:
+
 SELECT_ERR:
+    for (int i = 0; i < sockets_max; ++i) {
+        (void)(FD_ISSET(i, &fds) ? close(i) : 0);
+    }
+    FD_ZERO(&fds);
 
 LISTEN_ERR:
 
