@@ -119,6 +119,18 @@ typedef struct {
 typedef intptr_t list_t;
 
 static inline
+void add_node(list_t **pp_list, list_t *p_node)
+{
+    list_t *p_tmp = NULL;
+    
+    p_tmp = *pp_list;
+    *p_node = (list_t)p_tmp;
+    *pp_list = p_node;
+
+    return;
+}
+
+static inline
 void rm_node(list_t **pp_list, list_t *p_node)
 {
     list_t **pp_curr = NULL;
@@ -127,7 +139,7 @@ void rm_node(list_t **pp_list, list_t *p_node)
     while (*pp_curr) {
         if (p_node == *pp_curr) {
             *pp_curr = (list_t *)*p_node;
-            *p_node = NULL;
+            *p_node = 0;
 
             break;
         }
@@ -138,27 +150,39 @@ void rm_node(list_t **pp_list, list_t *p_node)
     return;
 }
 
+#ifndef NDEBUG
 void test(void)
 {
-    list_t *p_list_head = NULL;
+    list_t *p_iter = NULL;
+    static list_t *p_list_head = NULL;
     list_t list[4];
     
-    p_list_head = &list[0];
+    /*p_list_head = &list[0];
     list[0] = (list_t)&list[1];
     list[1] = (list_t)&list[2];
     list[2] = (list_t)&list[3];
-    list[3] = (list_t)NULL;
-
-    fprintf(stderr, "%p\n", p_list_head);
+    list[3] = (list_t)NULL;*/
     for (int i = 0; i < 4; ++i) {
-        fprintf(stderr, "%p\n", list[i]);
+        add_node(&p_list_head, &list[i]);
     }
+
+    fprintf(stderr, "addr of p_list_head: %p\n", &p_list_head);
+    p_iter = p_list_head;
+    while (NULL != p_iter) {
+        fprintf(stderr, "%p[%x]\n", p_iter, *p_iter);
+        p_iter = (list_t *)*p_iter;
+    }
+
+    fprintf(stderr, "############\n");
+
     rm_node(&p_list_head, &list[1]);
-    fprintf(stderr, "%p\n", p_list_head);
-    for (int i = 0; i < 4; ++i) {
-        fprintf(stderr, "%p\n", list[i]);
+    p_iter = p_list_head;
+    while (NULL != p_iter) {
+        fprintf(stderr, "%p[%x]\n", p_iter, *p_iter);
+        p_iter = (list_t *)*p_iter;
     }
 }
+#endif // NDEBUG
 
 
 int main(int argc, char *argv[])
@@ -181,7 +205,9 @@ int main(int argc, char *argv[])
     int_t select_err = FALSE;
     int_t accept_err = FALSE;
 
+#ifndef NDEBUG
     test();
+#endif // NDEBUG
     FD_ZERO(&fds);
     if (-1 == getrlimit(RLIMIT_NOFILE, &rlmt)) {
         goto GETRLIMIT_ERR;

@@ -1,6 +1,6 @@
 CC = gcc
-CFLAGS_RELEASE = -Wall -O2 -std=c99
-CPPFLAGS_RELEASE = -Wall -O2 -std=c99
+CFLAGS_RELEASE = -Wall -O2 -std=c99 -D NDEBUG
+CPPFLAGS_RELEASE = -Wall -O2 -std=c99 -D NDEBUG
 CFLAGS_DEBUG = -Wall -g -O0 -std=c99
 CPPFLAGS_DEBUG = -Wall -g -O0 -std=c99
 
