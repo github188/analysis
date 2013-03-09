@@ -198,7 +198,7 @@ int main(int argc, char *argv[])
     };
     struct rlimit rlmt = {0};
     struct timeval io_wait_tv = {
-        5, 0,
+        0, 0,
     };
     int_t sockets_max = 0;
     fd_set fds = {{0}};
@@ -273,6 +273,7 @@ int main(int argc, char *argv[])
     while (TRUE) {
         int nevents = 0;
         
+        // 重置描述符集
         FD_ZERO(&fds);
         FD_SET(lsn_fd, &fds);
         for (list_t *p_iter = p_clients;
@@ -283,6 +284,10 @@ int main(int argc, char *argv[])
 
             FD_SET(p_clt->m_cmnct_fd, &fds);
         }
+
+        // 重置定时器
+        io_wait_tv.tv_sec = 3;
+        io_wait_tv.tv_usec = 0;
 
         nevents = select(sockets_max + 1, &fds, NULL, NULL, &io_wait_tv);
 
