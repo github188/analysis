@@ -188,7 +188,7 @@ void test(void)
 int main(int argc, char *argv[])
 {
     int rslt = 0;
-    int_t lsn_fd = 0;
+    int lsn_fd = 0;
     int_t reuseaddr = REUSEADDR;
     struct sockaddr_in srv_addr = {
         .sin_family = AF_INET,
@@ -202,22 +202,47 @@ int main(int argc, char *argv[])
     };
     int_t sockets_max = 0;
     fd_set fds = {{0}};
+
+    typedef struct {
+        int m_cmnct_fd;
+        list_t m_node;
+    } client_t;
+    client_t *p_client_cache = NULL;
+    list_t *p_free_clients = NULL; // 空闲客户端
+    list_t *p_clients = NULL; // 客户端列表
     int_t select_err = FALSE;
     int_t accept_err = FALSE;
 
 #ifndef NDEBUG
     test();
 #endif // NDEBUG
-    FD_ZERO(&fds);
+    
+    // 获得能打开的最大描述符数目
     if (-1 == getrlimit(RLIMIT_NOFILE, &rlmt)) {
         goto GETRLIMIT_ERR;
     }
+    sockets_max = (int_t)rlmt.rlim_cur;
+    fprintf(stdout, "max sockets: %d\n", sockets_max);
+
+    // 客户端结构缓存
+    p_client_cache = calloc(sockets_max, sizeof(client_t));
+    if (NULL == p_client_cache) {
+        goto CALLOC_ERR;
+    }
+
+    // 建立客户端空闲链
+    for (int i = 0; i < sockets_max; ++i) {
+        add_node(&p_free_clients, &p_client_cache[i].m_node);
+    }
+
+    // 创建监听套接字
     lsn_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (-1 == lsn_fd) {
         goto SOCKET_ERR;
     }
     fprintf(stdout, "listen fd: %d\n", lsn_fd);
 
+    // 地址重用
     if (-1 == setsockopt(lsn_fd,
                          SOL_SOCKET,
                          SO_REUSEADDR,
@@ -227,6 +252,7 @@ int main(int argc, char *argv[])
         goto SETSOCKOPT_ERR;
     }
 
+    // 绑定ip端口
     if (-1 == bind(lsn_fd,
                    (struct sockaddr *)&srv_addr,
                    sizeof(srv_addr)))
@@ -234,21 +260,30 @@ int main(int argc, char *argv[])
         goto BIND_ERR;
     }
 
-    if (-1 == getrlimit(RLIMIT_NOFILE, &rlmt)) {
-        goto GETRLIMIT_ERR;
-    }
-    sockets_max = (int_t)rlmt.rlim_cur;
-    fprintf(stdout, "max sockets: %d\n", sockets_max);
-
+    // 监听
     if (-1 == listen(lsn_fd, SOMAXCONN)) {
         goto LISTEN_ERR;
     }
-    fprintf(stdout, "max backlog: %d\n", SOMAXCONN);
-    FD_SET(lsn_fd, &fds);
+    fprintf(stdout,
+            "listening on %d, max backlog: %d\n",
+            LSN_PORT,
+            SOMAXCONN);
 
+    // 事件循环
     while (TRUE) {
         int nevents = 0;
         
+        FD_ZERO(&fds);
+        FD_SET(lsn_fd, &fds);
+        for (list_t *p_iter = p_clients;
+             NULL != p_iter;
+             p_iter = (list_t *)*p_iter)
+        {
+            client_t *p_clt = CONTAINER_OF(p_iter, client_t, m_node);
+
+            FD_SET(p_clt->m_cmnct_fd, &fds);
+        }
+
         nevents = select(sockets_max + 1, &fds, NULL, NULL, &io_wait_tv);
 
         if (0 == nevents) { // time out
@@ -267,27 +302,49 @@ int main(int argc, char *argv[])
 
             if (i == lsn_fd) {
                 int cmnct_fd = 0;
+                client_t *p_clt = NULL;
                 
+                if (NULL == p_free_clients) { // 无法再接受新连接
+                    continue;
+                }
                 cmnct_fd = accept(lsn_fd, NULL, NULL);
                 if (-1 == cmnct_fd) {
                     accept_err = TRUE;
 
                     break;
                 }
-                FD_SET(cmnct_fd, &fds);
+
+                // 分配空闲结点
+                p_clt = CONTAINER_OF(p_free_clients, client_t, m_node);
+                rm_node(&p_free_clients, p_free_clients);
+    
+                // 加入到客户端列表
+                p_clt->m_cmnct_fd = cmnct_fd;
+                add_node(&p_clients, &p_clt->m_node);
             } else {
 #define BUFFER      "HTTP/1.1 200 OK\r\n" \
-                    "Content-Length: 5\r\n" \
+                    "Content-Length: 13\r\n" \
                     "Connection: close\r\n" \
                     "Content-Type: text/html\r\n\r\n" \
-                    "Hello"
+                    "Hello, World!"
 
                 ssize_t recved_size = 0;
                 char buf[1024] = {'\0'};
 
                 recved_size = recv(i, buf, 1024, 0);
                 if (0 == recved_size) {
-                    FD_CLR(i, &fds);
+                    for (list_t *p_iter = p_clients;
+                         NULL != p_iter;
+                         p_iter = (list_t *)*p_iter)
+                    {
+                        client_t *p_clt
+                            = CONTAINER_OF(p_iter, client_t, m_node);
+
+                        if (i == p_clt->m_cmnct_fd) {
+                            rm_node(&p_clients, p_iter);
+                        }
+                    }
+
                     close(i);
                 } else if (-1 == recved_size) {
                     break;
@@ -318,14 +375,12 @@ int main(int argc, char *argv[])
 ACCEPT_ERR:
 
 SELECT_ERR:
-    for (int i = 0; i < sockets_max; ++i) {
-        (void)(FD_ISSET(i, &fds) ? close(i) : 0);
-    }
-    FD_ZERO(&fds);
+        for (int i = 0; i < sockets_max; ++i) {
+            (void)(FD_ISSET(i, &fds) ? close(i) : 0);
+        }
+        FD_ZERO(&fds);
 
 LISTEN_ERR:
-
-GETRLIMIT_ERR:
 
 BIND_ERR:
 
@@ -333,6 +388,11 @@ SETSOCKOPT_ERR:
         close(lsn_fd);
 
 SOCKET_ERR:
+        free(p_client_cache);
+
+CALLOC_ERR:
+
+GETRLIMIT_ERR:
         rslt = -1;
     } while (0);
 
