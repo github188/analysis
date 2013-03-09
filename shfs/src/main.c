@@ -185,6 +185,94 @@ void test(void)
 #endif // NDEBUG
 
 
+// 缓冲区
+#define MIN_BUF_SIZE            4096
+
+typedef struct {
+    char *mp_data;
+    int_t m_size;
+    int_t m_content_len;
+} buf_t;
+
+static inline
+int_t create_buf(buf_t *const THIS, int_t size)
+{
+    int_t rslt = 0;
+
+    ASSERT(NULL != THIS);
+
+    if (size < MIN_BUF_SIZE) {
+        size = MIN_BUF_SIZE;
+    }
+
+    THIS->mp_data = (char *)malloc(size);
+    if (NULL == THIS->mp_data) {
+        goto FAILED;
+    }
+    THIS->m_size = size;
+    THIS->m_content_len = 0;
+    
+    do {
+        break;
+
+FAILED:
+        rslt = -1;
+    } while (0);
+
+    return rslt;
+}
+
+static inline
+int_t get_buf_size(buf_t *const THIS)
+{
+    ASSERT(NULL != THIS);
+
+    return THIS->m_size;
+}
+
+static inline
+void destroy_buf(buf_t *const THIS)
+{
+    ASSERT(NULL != THIS);
+
+    free(THIS->mp_data);
+    THIS->m_size = 0;
+    THIS->m_content_len = 0;
+}
+
+
+// 客户端列表
+typedef struct {
+    int m_cmnct_fd;
+    list_t m_node;
+} client_t;
+
+#define HTML32DOCTYPE           \
+            "<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML 3.2 Final//EN\">\r\n"
+
+// status line
+#define HTTP200                 "HTTP/1.1 200 OK\r\n"
+#define HTTP404                 "HTTP/1.1 404 File Not Found\r\n"
+#define HTTP404CONTENT          \
+            HTML32DOCTYPE \
+            "<head>\r\n" \
+            "    <title>\r\n" \
+            "        error response\r\n" \
+            "    </title>\r\n" \
+            "</head>\r\n" \
+            "<body>\r\n" \
+            "    <p>\r\n" \
+            "        error code 404.\r\n" \
+            "    </p>\r\n" \
+            "    <p>\r\n" \
+            "        message: file not found.\r\n" \
+            "    </p>\r\n" \
+            "</body>\r\n"
+
+// server line
+#define SERVER_NAME             "Server: shfs/1.0\r\n"
+
+
 int main(int argc, char *argv[])
 {
     int rslt = 0;
@@ -203,26 +291,29 @@ int main(int argc, char *argv[])
     int_t sockets_max = 0;
     fd_set fds = {{0}};
 
-    typedef struct {
-        int m_cmnct_fd;
-        list_t m_node;
-    } client_t;
     client_t *p_client_cache = NULL;
     list_t *p_free_clients = NULL; // 空闲客户端
     list_t *p_clients = NULL; // 客户端列表
     int_t select_err = FALSE;
     int_t accept_err = FALSE;
 
+    printf("%d\n", sizeof(HTTP404CONTENT));
 #ifndef NDEBUG
     test();
 #endif // NDEBUG
-    
+ 
+    if (1 == argc) {
+        fprintf(stderr, "usage: shfs filename\n");
+
+        goto FINAL;
+    }
+
     // 获得能打开的最大描述符数目
     if (-1 == getrlimit(RLIMIT_NOFILE, &rlmt)) {
         goto GETRLIMIT_ERR;
     }
     sockets_max = (int_t)rlmt.rlim_cur;
-    fprintf(stdout, "max sockets: %d\n", sockets_max);
+    fprintf(stdout, "[INFO] max sockets: %d\n", sockets_max);
 
     // 客户端结构缓存
     p_client_cache = calloc(sockets_max, sizeof(client_t));
@@ -240,7 +331,7 @@ int main(int argc, char *argv[])
     if (-1 == lsn_fd) {
         goto SOCKET_ERR;
     }
-    fprintf(stdout, "listen fd: %d\n", lsn_fd);
+    fprintf(stdout, "[INFO] listen fd: %d\n", lsn_fd);
 
     // 地址重用
     if (-1 == setsockopt(lsn_fd,
@@ -257,6 +348,8 @@ int main(int argc, char *argv[])
                    (struct sockaddr *)&srv_addr,
                    sizeof(srv_addr)))
     {
+        fprintf(stderr, "[ERROR] bind server port %d failed!\n", LSN_PORT);
+
         goto BIND_ERR;
     }
 
@@ -265,7 +358,7 @@ int main(int argc, char *argv[])
         goto LISTEN_ERR;
     }
     fprintf(stdout,
-            "listening on %d, max backlog: %d\n",
+            "[INFO] listening on %d, max backlog: %d\n",
             LSN_PORT,
             SOMAXCONN);
 
@@ -327,11 +420,12 @@ int main(int argc, char *argv[])
                 p_clt->m_cmnct_fd = cmnct_fd;
                 add_node(&p_clients, &p_clt->m_node);
             } else {
-#define BUFFER      "HTTP/1.1 200 OK\r\n" \
-                    "Content-Length: 13\r\n" \
+#define BUFFER      HTTP404 \
+                    SERVER_NAME \
+                    "Content-Length: 240\r\n" \
                     "Connection: close\r\n" \
                     "Content-Type: text/html\r\n\r\n" \
-                    "Hello, World!"
+                    HTTP404CONTENT
 
                 ssize_t recved_size = 0;
                 char buf[1024] = {'\0'};
@@ -401,5 +495,6 @@ GETRLIMIT_ERR:
         rslt = -1;
     } while (0);
 
+FINAL:
     return rslt;
 }
