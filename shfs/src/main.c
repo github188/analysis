@@ -6,6 +6,8 @@
 #include <assert.h>
 
 #include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/resource.h>
@@ -114,6 +116,7 @@ typedef struct {
 
 #define REUSEADDR       TRUE
 
+extern int errno;
 
 // 单链表
 typedef intptr_t list_t;
@@ -190,12 +193,12 @@ void test(void)
 
 typedef struct {
     char *mp_data;
-    int_t m_size;
-    int_t m_content_len;
+    ssize_t m_size;
+    ssize_t m_content_len;
 } buf_t;
 
 static inline
-int_t create_buf(buf_t *const THIS, int_t size)
+int_t create_buf(buf_t *const THIS, ssize_t size)
 {
     int_t rslt = 0;
 
@@ -223,11 +226,42 @@ FAILED:
 }
 
 static inline
-int_t get_buf_size(buf_t *const THIS)
+int_t is_buf_empty(buf_t *const THIS)
 {
     ASSERT(NULL != THIS);
 
-    return THIS->m_size;
+    return (NULL == THIS->mp_data) ? TRUE : FALSE;
+}
+
+static inline
+int_t doublesize_buf(buf_t *const THIS)
+{
+    int_t rslt = 0;
+    char *p_tmp = NULL;
+    ssize_t tmp_size = 2 * THIS->m_size;
+
+    p_tmp = (char *)malloc(tmp_size);
+    if (NULL == p_tmp) {
+        goto FAILED;
+    }
+
+    (void)memset(&p_tmp[0], 0, tmp_size);
+    if (NULL != THIS->mp_data) {
+        (void)memcpy(&p_tmp[0], &THIS->mp_data[0], THIS->m_content_len);
+
+        free(THIS->mp_data);
+    }
+    THIS->mp_data = p_tmp;
+    THIS->m_size = tmp_size;
+
+    do {
+        break;
+
+FAILED:
+        rslt = -1;
+    } while (0);
+
+    return rslt;
 }
 
 static inline
@@ -236,15 +270,17 @@ void destroy_buf(buf_t *const THIS)
     ASSERT(NULL != THIS);
 
     free(THIS->mp_data);
+    THIS->mp_data = NULL;
     THIS->m_size = 0;
     THIS->m_content_len = 0;
 }
 
 
-// 客户端列表
+// connection列表
 typedef struct {
     int m_cmnct_fd;
     list_t m_node;
+    buf_t m_buf; // 当前连接缓冲
 } client_t;
 
 #define HTML32DOCTYPE           \
@@ -294,8 +330,7 @@ int main(int argc, char *argv[])
     client_t *p_client_cache = NULL;
     list_t *p_free_clients = NULL; // 空闲客户端
     list_t *p_clients = NULL; // 客户端列表
-    int_t select_err = FALSE;
-    int_t accept_err = FALSE;
+    int_t loop_err = FALSE;
 
     printf("%d\n", sizeof(HTTP404CONTENT));
 #ifndef NDEBUG
@@ -379,7 +414,7 @@ int main(int argc, char *argv[])
         }
 
         // 重置定时器
-        io_wait_tv.tv_sec = 3;
+        io_wait_tv.tv_sec = 10;
         io_wait_tv.tv_usec = 0;
 
         nevents = select(sockets_max + 1, &fds, NULL, NULL, &io_wait_tv);
@@ -388,17 +423,17 @@ int main(int argc, char *argv[])
             continue;
         }
         if (-1 == nevents) {
-            select_err = TRUE;
+            loop_err = TRUE;
 
             break;
         }
 
-        for (int i = 0; i < sockets_max; ++i) {
-            if (!FD_ISSET(i, &fds)) {
+        for (int fd = 0; fd < sockets_max; ++fd) {
+            if (!FD_ISSET(fd, &fds)) {
                 continue;
             }
 
-            if (i == lsn_fd) {
+            if (fd == lsn_fd) {
                 int cmnct_fd = 0;
                 client_t *p_clt = NULL;
                 
@@ -407,7 +442,17 @@ int main(int argc, char *argv[])
                 }
                 cmnct_fd = accept(lsn_fd, NULL, NULL);
                 if (-1 == cmnct_fd) {
-                    accept_err = TRUE;
+                    loop_err = TRUE;
+
+                    break;
+                }
+
+                // 非阻塞io
+                if (-1 == fcntl(cmnct_fd,
+                                F_SETFL,
+                                fcntl(cmnct_fd, F_GETFL) | O_NONBLOCK))
+                {
+                    loop_err = TRUE;
 
                     break;
                 }
@@ -418,64 +463,98 @@ int main(int argc, char *argv[])
     
                 // 加入到客户端列表
                 p_clt->m_cmnct_fd = cmnct_fd;
+                if (is_buf_empty(&p_clt->m_buf)) { // 第一次使用分配接收缓冲
+                    if (-1 == create_buf(&p_clt->m_buf, MIN_BUF_SIZE)) {
+                        loop_err = TRUE;
+
+                        break;
+                    }
+                }
                 add_node(&p_clients, &p_clt->m_node);
             } else {
-#define BUFFER      HTTP404 \
+#define BUFFER      HTTP200 \
                     SERVER_NAME \
-                    "Content-Length: 240\r\n" \
+                    "Content-Length: 13\r\n" \
+                    "Cache-Control: no-cache\r\n" \
                     "Connection: close\r\n" \
                     "Content-Type: text/html\r\n\r\n" \
-                    HTTP404CONTENT
+                    "Hello, World!"
 
-                ssize_t recved_size = 0;
-                char buf[1024] = {'\0'};
+                int recv_errno = 0;
+                client_t *p_clt = NULL;
+                buf_t *p_buf = NULL;
 
-                recved_size = recv(i, buf, 1024, 0);
-                if (0 == recved_size) {
-                    for (list_t *p_iter = p_clients;
-                         NULL != p_iter;
-                         p_iter = (list_t *)*p_iter)
-                    {
-                        client_t *p_clt
-                            = CONTAINER_OF(p_iter, client_t, m_node);
+                // 获取连接缓冲
+                for (list_t *p_iter = p_clients;
+                     NULL != p_iter;
+                     p_iter = (list_t *)*p_iter)
+                {
+                    p_clt = CONTAINER_OF(p_iter, client_t, m_node);
 
-                        if (i == p_clt->m_cmnct_fd) {
-                            rm_node(&p_clients, p_iter);
-                        }
+                    if (fd == p_clt->m_cmnct_fd) {
+                        p_buf = &p_clt->m_buf;
                     }
-
-                    close(i);
-                } else if (-1 == recved_size) {
-                    break;
-                } else {
-                    send(i, BUFFER, sizeof(BUFFER), 0);
                 }
+                ASSERT(NULL != p_buf);
+
+                while (TRUE) {                    
+                    ssize_t recved_size = 0;
+
+                    recved_size = recv(fd,
+                                       &p_buf->mp_data[p_buf->m_content_len],
+                                       p_buf->m_size - p_buf->m_content_len,
+                                       0);
+                    recv_errno = errno;
+
+                    if (recved_size > 0) {
+                        p_buf->m_content_len += recved_size;
+                    } else if ((-1 == recved_size) && (EAGAIN == recv_errno)) {
+                        // 收完数据
+
+                        break;
+                    } else {
+                        rm_node(&p_clients, &p_clt->m_node);
+                        add_node(&p_free_clients, &p_clt->m_node);
+                        close(fd);
+
+                        break;
+                    }
+                }
+                p_buf->mp_data[p_buf->m_size - 1] = '\0';
+
+                fprintf(stderr, "%s\n", p_buf->mp_data);
+
+                if (loop_err) {
+                    break;
+                }
+
+                send(fd, BUFFER, sizeof(BUFFER), 0);
 
 #undef BUFFER
             }
         }
 
-        if (accept_err) {
+        if (loop_err) {
             break;
         }
     }
     
-    if (accept_err) {
-        goto ACCEPT_ERR;
-    }
-
-    if (select_err) {
-        goto SELECT_ERR;
+    if (loop_err) {
+        goto LOOP_ERR;
     }
 
     do {
         break;
 
-ACCEPT_ERR:
+LOOP_ERR:
+        for (list_t *p_iter = p_clients;
+             NULL != p_iter;
+             p_iter = (list_t *)*p_iter)
+        {
+            client_t *p_clt = CONTAINER_OF(p_iter, client_t, m_node);
 
-SELECT_ERR:
-        for (int i = 0; i < sockets_max; ++i) {
-            (void)(FD_ISSET(i, &fds) ? close(i) : 0);
+            destroy_buf(&p_clt->m_buf);
+            close(p_clt->m_cmnct_fd);
         }
         FD_ZERO(&fds);
 
@@ -496,5 +575,7 @@ GETRLIMIT_ERR:
     } while (0);
 
 FINAL:
+    fprintf(stderr, "exit: %d\n", rslt);
+
     return rslt;
 }
