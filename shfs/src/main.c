@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/resource.h>
 #include <sys/select.h>
@@ -226,6 +227,17 @@ FAILED:
 }
 
 static inline
+void clean_buf(buf_t *const THIS)
+{
+    ASSERT(NULL != THIS);
+
+    (void)memset(THIS->mp_data, 0, THIS->m_size);
+    THIS->m_content_len = 0;
+
+    return;
+}
+
+static inline
 int_t is_buf_empty(buf_t *const THIS)
 {
     ASSERT(NULL != THIS);
@@ -332,7 +344,6 @@ int main(int argc, char *argv[])
     list_t *p_clients = NULL; // 客户端列表
     int_t loop_err = FALSE;
 
-    printf("%d\n", sizeof(HTTP404CONTENT));
 #ifndef NDEBUG
     test();
 #endif // NDEBUG
@@ -408,9 +419,14 @@ int main(int argc, char *argv[])
              NULL != p_iter;
              p_iter = (list_t *)*p_iter)
         {
+            struct stat tmp_stat = {0};
             client_t *p_clt = CONTAINER_OF(p_iter, client_t, m_node);
 
-            FD_SET(p_clt->m_cmnct_fd, &fds);
+            if (0 == fstat(p_clt->m_cmnct_fd, &tmp_stat)) {
+                FD_SET(p_clt->m_cmnct_fd, &fds);
+            } else {
+                fprintf(stderr, "[BUG] bad fd: %d\n", p_clt->m_cmnct_fd);
+            }
         }
 
         // 重置定时器
@@ -424,6 +440,7 @@ int main(int argc, char *argv[])
         }
         if (-1 == nevents) {
             loop_err = TRUE;
+            fprintf(stderr, "[ERROR] select failed: %s.\n", strerror(errno));
 
             break;
         }
@@ -433,7 +450,7 @@ int main(int argc, char *argv[])
                 continue;
             }
 
-            if (fd == lsn_fd) {
+            if (fd == lsn_fd) { // connection input
                 int cmnct_fd = 0;
                 client_t *p_clt = NULL;
                 
@@ -443,6 +460,7 @@ int main(int argc, char *argv[])
                 cmnct_fd = accept(lsn_fd, NULL, NULL);
                 if (-1 == cmnct_fd) {
                     loop_err = TRUE;
+                    fprintf(stderr, "[ERROR] accept failed.\n");
 
                     break;
                 }
@@ -453,6 +471,7 @@ int main(int argc, char *argv[])
                                 fcntl(cmnct_fd, F_GETFL) | O_NONBLOCK))
                 {
                     loop_err = TRUE;
+                    fprintf(stderr, "[ERROR] fcntl failed.\n");
 
                     break;
                 }
@@ -466,12 +485,13 @@ int main(int argc, char *argv[])
                 if (is_buf_empty(&p_clt->m_buf)) { // 第一次使用分配接收缓冲
                     if (-1 == create_buf(&p_clt->m_buf, MIN_BUF_SIZE)) {
                         loop_err = TRUE;
+                        fprintf(stderr, "[ERROR] create buf failed!\n");
 
                         break;
                     }
                 }
                 add_node(&p_clients, &p_clt->m_node);
-            } else {
+            } else { // data input
 #define BUFFER      HTTP200 \
                     SERVER_NAME \
                     "Content-Length: 13\r\n" \
@@ -484,7 +504,6 @@ int main(int argc, char *argv[])
                 client_t *p_clt = NULL;
                 buf_t *p_buf = NULL;
 
-                // 获取连接缓冲
                 for (list_t *p_iter = p_clients;
                      NULL != p_iter;
                      p_iter = (list_t *)*p_iter)
@@ -493,6 +512,8 @@ int main(int argc, char *argv[])
 
                     if (fd == p_clt->m_cmnct_fd) {
                         p_buf = &p_clt->m_buf;
+
+                        break;
                     }
                 }
                 ASSERT(NULL != p_buf);
@@ -510,9 +531,11 @@ int main(int argc, char *argv[])
                         p_buf->m_content_len += recved_size;
                     } else if ((-1 == recved_size) && (EAGAIN == recv_errno)) {
                         // 收完数据
+                        fprintf(stderr, "[fd:%d] %s\n", fd, p_buf->mp_data);
 
                         break;
                     } else {
+                        clean_buf(&p_clt->m_buf);
                         rm_node(&p_clients, &p_clt->m_node);
                         add_node(&p_free_clients, &p_clt->m_node);
                         close(fd);
@@ -521,8 +544,6 @@ int main(int argc, char *argv[])
                     }
                 }
                 p_buf->mp_data[p_buf->m_size - 1] = '\0';
-
-                fprintf(stderr, "%s\n", p_buf->mp_data);
 
                 if (loop_err) {
                     break;
