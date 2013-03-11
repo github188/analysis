@@ -529,6 +529,16 @@ int main(int argc, char *argv[])
 
                     if (recved_size > 0) {
                         p_buf->m_content_len += recved_size;
+
+                        // 缓冲满
+                        if (p_buf->m_size - p_buf->m_content_len > 0) {
+                            continue;
+                        }
+                        if (-1 == doublesize_buf(p_buf)) {
+                            loop_err = TRUE;
+
+                            break;
+                        }
                     } else if ((-1 == recved_size) && (EAGAIN == recv_errno)) {
                         // 收完数据
                         fprintf(stderr, "[fd:%d] %s\n", fd, p_buf->mp_data);
