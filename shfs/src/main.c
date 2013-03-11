@@ -496,7 +496,7 @@ int main(int argc, char *argv[])
                     SERVER_NAME \
                     "Content-Length: 13\r\n" \
                     "Cache-Control: no-cache\r\n" \
-                    "Connection: close\r\n" \
+                    "Connection: keep-alive\r\n" \
                     "Content-Type: text/html\r\n\r\n" \
                     "Hello, World!"
 
@@ -542,6 +542,7 @@ int main(int argc, char *argv[])
                     } else if ((-1 == recved_size) && (EAGAIN == recv_errno)) {
                         // 收完数据
                         fprintf(stderr, "[fd:%d] %s\n", fd, p_buf->mp_data);
+                        clean_buf(p_buf);
 
                         break;
                     } else {
