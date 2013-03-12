@@ -2,11 +2,34 @@ digraph nginx {
     node [
         shape = "record",
     ];
+    rankdir = LR;
 
     subgraph cluster_ngx_cycle_t {
         label = "ngx_cycle_t";
 
         node_ngx_cycle_t [label = "<conf_ctx>void : ****conf_ctx | \
-                                   <pool>ngx_pool_t : *pool"];
+                                   <pool>ngx_pool_t : *pool | \
+                                   <log>ngx_log_t : *log | \
+                                   <new_log>ngx_log_t : new_log"];
     };
+
+    subgraph cluster_ngx_pool_t {
+        label = "ngx_pool_t";
+
+        node_ngx_pool_t [label = "<d>ngx_pool_data : d | \
+                                  <max>size_t : max"];
+    };
+
+    subgraph cluster_ngx_pool_data_t {
+        node_ngx_pool_data_t [label = "<last>u_char : *last | \
+                                       <end>u_char : *end | \
+                                       <next>ngx_pool_t : *next | \
+                                       <failed>ngx_uint_t : failed"];
+    };
+
+    node_ngx_cycle_t:pool -> node_ngx_pool_t:d [
+        style = dotted,
+    ];
+    node_ngx_pool_t:d -> node_ngx_pool_data_t:last;
+    node_ngx_pool_t:d -> node_ngx_pool_data_t:failed;
 };
