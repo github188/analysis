@@ -17,7 +17,12 @@ digraph nginx {
         label = "ngx_pool_t";
 
         node_ngx_pool_t [label = "<d>ngx_pool_data : d | \
-                                  <max>size_t : max"];
+                                  <max>size_t : max | \
+                                  <current>ngx_pool_t : *current | \
+                                  <chain>ngx_chain_t : *chain | \
+                                  <large>ngx_pool_large_t : *large | \
+                                  <cleanup>ngx_pool_cleanup_t : *cleanup | \
+                                  <log>ngx_log_t : *log"];
     };
 
     subgraph cluster_ngx_pool_data_t {
@@ -27,9 +32,9 @@ digraph nginx {
                                        <failed>ngx_uint_t : failed"];
     };
 
-    node_ngx_cycle_t:pool -> node_ngx_pool_t:d [
-        style = dotted,
-    ];
+    node_ngx_cycle_t:pool -> node_ngx_pool_t:d;
+
     node_ngx_pool_t:d -> node_ngx_pool_data_t:last;
     node_ngx_pool_t:d -> node_ngx_pool_data_t:failed;
+    node_ngx_pool_t:current -> node_ngx_pool_t:d;
 };
