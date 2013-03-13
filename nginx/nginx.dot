@@ -2,7 +2,23 @@ digraph nginx {
     node [
         shape = "record",
     ];
+    rank = same;
     rankdir = LR;
+
+    subgraph cluster_ngx_time_t {
+        label = "ngx_time_t";
+
+        node_ngx_time_t [label = "<sec>time_t : sec | \
+                                  <mse>ngx_uint_t : msec | \
+                                  <gmtoff>ngx_int_t : gmtoff"];
+    };
+
+    subgraph cluster_ngx_str_t {
+        label = "ngx_str_t";
+
+        node_ngx_str_t [label = "<len>size_t : len | \
+                                 <data> u_char : *data"];
+    };
 
     subgraph cluster_ngx_cycle_t {
         label = "ngx_cycle_t";
@@ -15,6 +31,7 @@ digraph nginx {
 
     subgraph cluster_ngx_pool_t {
         label = "ngx_pool_t";
+        style = "filled";
 
         node_ngx_pool_t [label = "<d>ngx_pool_data : d | \
                                   <max>size_t : max | \
@@ -30,6 +47,36 @@ digraph nginx {
                                        <end>u_char : *end | \
                                        <next>ngx_pool_t : *next | \
                                        <failed>ngx_uint_t : failed"];
+    };
+    
+    subgraph cluster_ngx_err_list {
+        label = "ngx_err_list";
+        rank = same;
+        node_ngx_sys_errlist [label = "ngx_str_t : *ngx_sys_errlist"];
+        node_ngx_str_ts [label = "<1>ngx_str_t | \
+                                  <2>ngx_str_t | \
+                                  <3>ngx_str_t | \
+                                  <4>......"];
+        node_ngx_sys_errlist -> node_ngx_str_ts:1;
+        node_ngx_str_ts:1 -> node_ngx_str_t:len;
+        node_ngx_str_ts:1 -> node_ngx_str_t:data;
+    };
+
+    subgraph cluster_ngx_time {
+        label = "ngx_time";
+        rank = same;
+        node_ngx_cached_err_log_time [
+            label = "ngx_str_t : ngx_cached_err_log_time",
+        ];
+        node_ngx_cached_http_time [
+            label = "ngx_str_t : ngx_cached_http_time",
+        ];
+        node_ngx_cached_http_log_time [
+            label = "ngx_str_t : ngx_cached_http_log_time",
+        ];
+        node_ngx_cached_http_log_iso8601_time [
+            label = "ngx_str_t : ngx_cached_http_log_iso8601_time",
+        ];
     };
 
     node_ngx_cycle_t:pool -> node_ngx_pool_t:d;
