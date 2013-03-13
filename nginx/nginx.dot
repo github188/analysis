@@ -43,6 +43,7 @@ digraph nginx {
     };
 
     subgraph cluster_ngx_pool_data_t {
+        label = "ngx_pool_data_t"
         node_ngx_pool_data_t [label = "<last>u_char : *last | \
                                        <end>u_char : *end | \
                                        <next>ngx_pool_t : *next | \
@@ -77,6 +78,17 @@ digraph nginx {
         node_ngx_cached_http_log_iso8601_time [
             label = "ngx_str_t : ngx_cached_http_log_iso8601_time",
         ];
+        node_cached_time [
+            label = "<1>ngx_time_t | \
+                     <2>ngx_time_t | \
+                     <3>ngx_time_t | \
+                     <4>......",
+        ];
+        node_ngx_cached_time [
+            label = "ngx_time_t : *ngx_cached_time",
+        ];
+
+        node_ngx_cached_time -> node_cached_time:1;
     };
 
     node_ngx_cycle_t:pool -> node_ngx_pool_t:d;
