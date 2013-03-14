@@ -13,6 +13,21 @@ digraph nginx {
                                  <data>u_char : *data"];
     };
 
+    subgraph cluster_ngx_open_file_t {
+        label = "ngx_open_file_t";
+
+        node_ngx_open_file_t [label = "<fd>ngx_fd_t : fd | \
+                                       <name>ngx_str_t : name | \
+                                       <buffer>u_char : *buffer | \
+                                       <pos>u_char : *pos | \
+                                       <last>u_char : *last"];
+    };
+    node_ngx_log_file [label = "<self>ngx_log_file"];
+    node_prefix_error_log [label = "/usr/local/nginx/logs/error.log"];
+    node_ngx_log_file:self -> node_ngx_open_file_t:fd;
+    node_ngx_log_file:self -> node_ngx_open_file_t:last;
+    node_ngx_open_file_t:fd -> node_prefix_error_log;
+
     subgraph cluster_ngx_log_t {
         label = "ngx_log_t";
 
@@ -27,8 +42,21 @@ digraph nginx {
     };
     node_ngx_log [label = "ngx_log_t : ngx_log"];
 
-    node_ngx_log -> node_ngx_log_t:log_level;
-    node_ngx_log -> node_ngx_log_t:action;
+    node_ngx_log -> node_ngx_log_t:log_level [
+        label = "ngx_log",
+        color = "red",
+        fontcolor = "red",
+    ];
+    node_ngx_log -> node_ngx_log_t:action [
+        label = "ngx_log",
+        color = "red",
+        fontcolor = "red",
+    ];
+    node_ngx_log_t:file -> node_ngx_log_file [
+        label = "ngx_log",
+        color = "red",
+        fontcolor = "red",
+    ];
 
     subgraph cluster_ngx_cycle_t {
         label = "ngx_cycle_t";
@@ -37,8 +65,18 @@ digraph nginx {
         node_ngx_cycle_t [label = "<conf_ctx>void : ****conf_ctx | \
                                    <pool>ngx_pool_t : *pool | \
                                    <log>ngx_log_t : *log | \
-                                   <new_log>ngx_log_t : new_log"];
+                                   <new_log>ngx_log_t : new_log | \
+                                   <...>... | \
+                                   <hostname>ngx_str_t : hostname"];
     };
+    node_init_cycle [label = "ngx_cycle_t : init_cycle"];
+    node_ngx_cycle [label = "ngx_cycle_t : *ngx_cycle"];
+
+    node_ngx_cycle -> node_init_cycle [
+        style = "dotted",
+    ];
+    node_init_cycle -> node_ngx_cycle_t:conf_ctx;
+    node_init_cycle -> node_ngx_cycle_t:hostname;
     node_ngx_cycle_t:new_log -> node_ngx_log_t:log_level [
         label = "new_log",
         color = "blue",
@@ -49,6 +87,7 @@ digraph nginx {
         color = "blue",
         fontcolor = "blue",
     ];
+    node_ngx_cycle_t:log -> node_ngx_log;
 
     subgraph cluster_ngx_pool_t {
         label = "ngx_pool_t";
@@ -112,9 +151,9 @@ digraph nginx {
     node_ngx_cached_err_log_time [
         label = "ngx_str_t : ngx_cached_err_log_time",
     ];
-    node_ngx_cached_http_time {
-        label = "ngx_str_t : ngx_cached_http_time";
-    };
+    node_ngx_cached_http_time [
+        label = "ngx_str_t : ngx_cached_http_time",
+    ];
     node_ngx_cached_http_log_time [
         label = "ngx_str_t : ngx_cached_http_log_time",
     ];
