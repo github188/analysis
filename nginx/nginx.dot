@@ -13,6 +13,87 @@ digraph nginx {
                                  <data>u_char : *data"];
     };
 
+    subgraph cluster_ngx_linux_io {
+        label = "ngx_os_io_t : ngx_linux_io";
+
+        node_ngx_linux_io [
+            label = "<recv>ngx_recv_pt : recv | \
+                     <recv_chain>ngx_recv_chain_pt : recv_chain | \
+                     <udp_recv>ngx_recv_pt : udp_recv | \
+                     <send>ngx_send_pt : send | \
+                     <send_chain>ngx_send_chain_pt : send_chain | \
+                     <flags>ngx_uint_t : flags"];
+        node_ngx_linux_io:recv -> ngx_unix_recv;
+    };
+
+    subgraph cluster_ngx_core_conf_t {
+        label = "ngx_core_conf_t";
+
+        node_ngx_core_conf_t [
+            label = "<daemon>ngx_flag_t : daemon | \
+                     <master>ngx_flag_t : master | \
+                     <timer_resolution>ngx_msec_t : timer_resolution | \
+                     <n>...",
+        ];
+    };
+    node_ngx_cycle_conf_ctx:0 -> node_ngx_core_conf_t:daemon [
+        label = "malloc",
+    ];
+
+    subgraph cluster_ngx_core_module_ctx {
+        label = "ngx_core_module_t : ngx_core_module_ctx";
+
+        node_ngx_core_module_ctx [
+            label = "<name>ngx_str_t : name | \
+                     <create_conf>void *(*create_conf)(ngx_cycle_t *cycle) | \
+                     <init_conf>char \
+                         *(*init_conf)(ngx_cycle_t *cycle, void *conf)",
+        ];
+        node_ngx_core_module_ctx:create_conf -> ngx_core_module_create_conf;
+        node_ngx_core_module_ctx:init_conf -> ngx_core_module_init_conf;
+    };
+    subgraph cluster_ngx_core_module {
+        label = "ngx_module_t : ngx_core_module";
+
+        node_ngx_core_module [
+            label = "<ctx_index>ngx_uint_t : ctx_index | \
+                     <index>ngx_uint_t : index | \
+                     <spare0>ngx_uint_t : spare0 | \
+                     <spare1>ngx_uint_t : spare1 | \
+                     <spare2>ngx_uint_t : spare2 | \
+                     <spare3>ngx_uint_t : spare3 | \
+                     <version>ngx_uint_t : version | \
+                     <ctx>void : *ctx | \
+                     <commands>ngx_command_t : *commands | \
+                     <type>ngx_uint_t : type | \
+                     <init_master>ngx_int_t (*init_master)(ngx_log_t *log) | \
+                     <init_module>ngx_int_t \
+                         (*init_module)(ngx_cycle_t *cycle) | \
+                     <init_process>ngx_int_t \
+                         (*init_process)(ngx_cycle_t *cyle)",
+        ];
+    };
+
+    node_ngx_core_module:ctx -> node_ngx_core_module_ctx:name;
+
+    subgraph cluster_ngx_modules {
+        label = "ngx_module_t : *ngx_modules[]";
+
+        node_ngx_modules [
+            label = "<0>ngx_module_t : *0 | \
+                     <1>ngx_module_t : *1 | \
+                     <2>ngx_module_t : *2 | \
+                     <3>ngx_module_t : *3 | \
+                     <4>ngx_module_t : *4 | \
+                     <5>ngx_module_t : *5 | \
+                     <6>ngx_module_t : *6 | \
+                     <7>ngx_module_t : *7 | \
+                     <8>ngx_module_t : *8 | \
+                     <n>ngx_module_t : *..."];
+    };
+
+    node_ngx_modules:0 -> node_ngx_core_module:ctx_index;
+
     subgraph cluster_ngx_open_file_t {
         label = "ngx_open_file_t";
 
@@ -58,16 +139,37 @@ digraph nginx {
         fontcolor = "red",
     ];
 
+    node_ngx_cycle_conf_ctx [
+        label = "<0>void * | \
+                 <1>void * | \
+                 <2>void * | \
+                 <3>void * | \
+                 <4>void * | \
+                 <n>...",
+    ];    
+
     subgraph cluster_ngx_cycle_t {
         label = "ngx_cycle_t";
         style = "filled";
 
-        node_ngx_cycle_t [label = "<conf_ctx>void : ****conf_ctx | \
-                                   <pool>ngx_pool_t : *pool | \
-                                   <log>ngx_log_t : *log | \
-                                   <new_log>ngx_log_t : new_log | \
-                                   <...>... | \
-                                   <hostname>ngx_str_t : hostname"];
+        node_ngx_cycle_t [
+            label = "<conf_ctx>void : ****conf_ctx | \
+                     <pool>ngx_pool_t : *pool | \
+                     <log>ngx_log_t : *log | \
+                     <new_log>ngx_log_t : new_log | \
+                     <files>ngx_connection_t : **files | \
+                     <free_connections>ngx_connection_t : *free_connections | \
+                     <free_connection_n>ngx_uint_t : free_connection_n | \
+                     <reusable_connections_queue>ngx_queue_t \
+                         : reusable_connections_queue | \
+                     <listening>ngx_array_t : listening | \
+                     <pathes>ngx_array_t : pathes | \
+                     <open_files>ngx_list_t : open_files | \
+                     <shared_memory>ngx_list_t : shared_memory | \
+                     <...>... | \
+                     <conf_file>ngx_str_t : conf_file | \
+                     <...>... | \
+                     <hostname>ngx_str_t : hostname"];
     };
     node_init_cycle [label = "ngx_cycle_t : init_cycle"];
     node_ngx_cycle [label = "ngx_cycle_t : *ngx_cycle"];
@@ -75,19 +177,36 @@ digraph nginx {
     node_ngx_cycle -> node_init_cycle [
         style = "dotted",
     ];
-    node_init_cycle -> node_ngx_cycle_t:conf_ctx;
-    node_init_cycle -> node_ngx_cycle_t:hostname;
+    node_ngx_cycle -> node_ngx_cycle_t:conf_ctx [
+        label = "malloc",
+        color = "red",
+    ];
+    node_init_cycle -> node_ngx_cycle_t:conf_ctx [
+        label = "init_cycle",
+        color = "green",
+        fontcolor = "green",
+    ];
+    node_init_cycle -> node_ngx_cycle_t:hostname [
+        label = "init_cycle",
+        color = "green",
+        fontcolor = "green",
+    ];
+    node_ngx_cycle_t:conf_ctx -> node_ngx_cycle_conf_ctx:0;
     node_ngx_cycle_t:new_log -> node_ngx_log_t:log_level [
-        label = "new_log",
-        color = "blue",
-        fontcolor = "blue",
+        label = "init_cycle",
+        color = "green",
+        fontcolor = "green",
     ];
     node_ngx_cycle_t:new_log -> node_ngx_log_t:action [
-        label = "new_log"
-        color = "blue",
-        fontcolor = "blue",
+        label = "init_cycle",
+        color = "green",
+        fontcolor = "green",
     ];
-    node_ngx_cycle_t:log -> node_ngx_log;
+    node_ngx_cycle_t:log -> node_ngx_log [
+        label = "init_cycle",
+        color = "green",
+        fontcolor = "green",
+    ];
 
     subgraph cluster_ngx_pool_t {
         label = "ngx_pool_t";
@@ -98,7 +217,11 @@ digraph nginx {
                                   <chain>ngx_chain_t : *chain | \
                                   <large>ngx_pool_large_t : *large | \
                                   <cleanup>ngx_pool_cleanup_t : *cleanup | \
-                                  <log>ngx_log_t : *log"];
+                                  <log>ngx_log_t : *log | \
+                                  <0>char : [0] | \
+                                  <1>char : [1] | \
+                                  <n>char : ... | \
+                                  <end>end"];
     };
 
     subgraph cluster_ngx_pool_data_t {
@@ -174,9 +297,42 @@ digraph nginx {
         label = "ngx_cached_http_time",
     ];
 
-    node_ngx_cycle_t:pool -> node_ngx_pool_t:d;
+    node_ngx_cycle_t:pool -> node_ngx_pool_t:d [
+        label = "init_cycle",
+        color = "green",
+        fontcolor = "green",
+    ];
+    node_prefix_nginx_conf [label = "/usr/local/nginx/conf/nginx.conf"];
+    node_ngx_cycle_t:conf_file -> node_prefix_nginx_conf [
+        label = "init_cycle",
+        color = "green",
+        fontcolor = "green",
+    ];
 
-    node_ngx_pool_t:d -> node_ngx_pool_data_t:last;
-    node_ngx_pool_t:d -> node_ngx_pool_data_t:failed;
+    node_ngx_pool_t:d -> node_ngx_pool_data_t:last [
+        label = "init_cycle",
+        color = "green",
+        fontcolor = "green",
+    ];
+    node_ngx_pool_t:d -> node_ngx_pool_data_t:failed [
+        label = "init_cycle",
+        color = "red",
+        fontcolor = "red",
+    ];
+    node_ngx_pool_data_t:last -> node_ngx_pool_t:0 [
+        label = "init_cycle",
+        color = "green",
+        fontcolor = "green",
+    ];
+    node_ngx_pool_data_t:end -> node_ngx_pool_t:end [
+        label = "init_cycle",
+        color = "green",
+        fontcolor = "green",
+    ];
+    node_ngx_pool_t:log -> node_ngx_log [
+        label = "init_cycle",
+        color = "purple",
+        fontcolor = "purple",
+    ];
     node_ngx_pool_t:current -> node_ngx_pool_t:d;
 };
