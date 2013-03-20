@@ -125,6 +125,7 @@ typedef struct {
     char *mp_data;
     int_t m_len;
 } str_t;
+
 #define STR_CPY(str_dst, dst_offset, str_src)   {\
             (void)memcpy(str_dst.mp_data + dst_offset, \
                          str_src.mp_data, \
@@ -133,6 +134,47 @@ typedef struct {
             str_dst.mp_data[str_dst.m_len] = '\0';\
         }
 
+static inline
+void reverse_str(str_t target)
+{
+    int i = 0;
+    int j = 0;
+
+    ASSERT(NULL != target.mp_data);
+    ASSERT(target.m_len > 0);
+
+    for (i = 0, j = target.m_len - 1; i < j; ++i, --j) {
+        char tmp = target.mp_data[i];
+
+        target.mp_data[i] = target.mp_data[j];
+        target.mp_data[j] = tmp;
+    }
+}
+
+static inline
+int offset_to_str(off_t value, str_t target)
+{
+    int iter = 0;
+    int real_len = 0;
+    off_t value_tmp = value;
+
+    ASSERT(value > 0);
+    ASSERT(NULL != target.mp_data);
+    ASSERT(target.m_len > 0);
+
+    ASSERT(0 == iter);
+    ASSERT(0 == real_len);
+    while ((0 != value_tmp) && (iter < target.m_len)) {
+        off_t next_value = value_tmp / 10;
+
+        target.mp_data[iter++] = value_tmp - next_value * 10 + '0';
+        value_tmp = next_value;
+        ++real_len;
+    }
+
+    return real_len;
+}
+
 // 单链表
 typedef intptr_t list_t;
 
@@ -140,7 +182,7 @@ static inline
 void add_node(list_t **pp_list, list_t *p_node)
 {
     list_t *p_tmp = NULL;
-    
+
     p_tmp = *pp_list;
     *p_node = (list_t)p_tmp;
     *pp_list = p_node;
@@ -174,7 +216,7 @@ void test(void)
     list_t *p_iter = NULL;
     static list_t *p_list_head = NULL;
     list_t list[4];
-    
+
     /*p_list_head = &list[0];
     list[0] = (list_t)&list[1];
     list[1] = (list_t)&list[2];
@@ -229,7 +271,7 @@ int_t create_buf(buf_t *const THIS, ssize_t size)
     }
     THIS->m_size = size;
     THIS->m_content_len = 0;
-    
+
     do {
         break;
 
@@ -312,6 +354,7 @@ typedef struct {
     list_t m_node;
     buf_t m_recv_buf; // 接收缓冲
     buf_t m_send_buf; // 发送缓冲
+    int m_sent_len; // 已发送长度
 } client_t;
 
 #define HTML32DOCTYPE           \
@@ -352,7 +395,7 @@ int main(int argc, char *argv[])
 {
     int rslt = 0;
     int lsn_fd = 0;
-    int_t reuseaddr = REUSEADDR;
+    int reuseaddr = REUSEADDR;
     struct sockaddr_in srv_addr = {
         .sin_family = AF_INET,
         .sin_port = htons(LSN_PORT),
@@ -363,18 +406,19 @@ int main(int argc, char *argv[])
     struct timeval io_wait_tv = {
         0, 0,
     };
-    int_t sockets_max = 0;
+    int sockets_max = 0;
     fd_set fds = {{0}};
 
     client_t *p_client_cache = NULL;
     list_t *p_free_clients = NULL; // 空闲客户端
     list_t *p_clients = NULL; // 客户端列表
-    int_t loop_err = FALSE;
+
+    int loop_err = 0;
 
 #ifndef NDEBUG
     test();
 #endif // NDEBUG
- 
+
     if (1 == argc) {
         fprintf(stderr, "usage: shfs filename\n");
 
@@ -388,7 +432,7 @@ int main(int argc, char *argv[])
     if (-1 == getrlimit(RLIMIT_NOFILE, &rlmt)) {
         goto GETRLIMIT_ERR;
     }
-    sockets_max = (int_t)rlmt.rlim_cur;
+    sockets_max = rlmt.rlim_cur;
     fprintf(stdout, "[INFO] max sockets: %d\n", sockets_max);
 
     // 客户端结构缓存
@@ -441,7 +485,7 @@ int main(int argc, char *argv[])
     // 事件循环
     while (TRUE) {
         int nevents = 0;
-        
+
         // 重置描述符集
         FD_ZERO(&fds);
         FD_SET(lsn_fd, &fds);
@@ -483,7 +527,7 @@ int main(int argc, char *argv[])
             if (fd == lsn_fd) { // connection input
                 int cmnct_fd = 0;
                 client_t *p_clt = NULL;
-                
+
                 if (NULL == p_free_clients) { // 无法再接受新连接
                     continue;
                 }
@@ -509,7 +553,7 @@ int main(int argc, char *argv[])
                 // 分配空闲结点
                 p_clt = CONTAINER_OF(p_free_clients, client_t, m_node);
                 rm_node(&p_free_clients, p_free_clients);
-    
+
                 // 加入到客户端列表
                 p_clt->m_cmnct_fd = cmnct_fd;
 
@@ -532,17 +576,12 @@ int main(int argc, char *argv[])
                 }
                 add_node(&p_clients, &p_clt->m_node);
             } else { // data input
-#define BUFFER      HTTP200 \
-                    SERVER_NAME \
-                    "Content-Length: 13\r\n" \
-                    "Cache-Control: no-cache\r\n" \
-                    "Connection: keep-alive\r\n" \
-                    "Content-Type: text/html\r\n\r\n" \
-                    "Hello, World!"
 
-                int recv_errno = 0;
+                int_t recved_size = 0;
+                int_t recv_errno = 0;
                 client_t *p_clt = NULL;
                 buf_t *p_recv_buf = NULL;
+                buf_t *p_send_buf = NULL;
 
                 for (list_t *p_iter = p_clients;
                      NULL != p_iter;
@@ -552,103 +591,132 @@ int main(int argc, char *argv[])
 
                     if (fd == p_clt->m_cmnct_fd) {
                         p_recv_buf = &p_clt->m_recv_buf;
+                        p_send_buf = &p_clt->m_send_buf;
 
                         break;
                     }
                 }
+
+                // ***** recv *****
                 ASSERT(NULL != p_recv_buf);
-
-                while (TRUE) {
-                    ssize_t recved_size = 0;
-
-                    recved_size = recv(fd,
-                                       &p_recv_buf->mp_data[
-                                           p_recv_buf->m_content_len],
-                                       p_recv_buf->m_size
-                                           - p_recv_buf->m_content_len,
-                                       0);
-                    recv_errno = errno;
-
-                    if (recved_size > 0) {
-                        p_recv_buf->m_content_len += recved_size;
-
-                        // 缓冲满
-                        if (p_recv_buf->m_size - p_recv_buf->m_content_len > 0) {
-                            continue;
-                        }
-                        if (-1 == doublesize_buf(p_recv_buf)) {
-                            loop_err = TRUE;
-
-                            break;
-                        }
-                    } else if ((-1 == recved_size) && (EAGAIN == recv_errno)) {
-                        char fn_buf[PATH_MAX] = {0};
-                        str_t filename = {
-                            fn_buf, 0,
-                        };
-                        int rdfd = 0;
-                        struct stat url_stat = {0};
-                        http_request_t requ = {
-                            {
-                                NULL, 0,
-                            },
-                        };
-
-                        // 收完数据
-                        fprintf(stderr, "[fd:%d] %s\n", fd, p_recv_buf->mp_data);
-                        requ.m_location.mp_data = p_recv_buf->mp_data;
-                        while ('/' != *requ.m_location.mp_data) {
-                            ++requ.m_location.mp_data;
-                        }
-                        ASSERT(0 == requ.m_location.m_len);
-                        for (int i = 0; ' ' != requ.m_location.mp_data[i]; ++i) {
-                            ++requ.m_location.m_len;
-                        }
-                        STR_CPY(filename, 0, path_root);
-                        if ('/' == filename.mp_data[filename.m_len - 1])
-                        {
-                            filename.mp_data[filename.m_len] = '\0';
-                            --filename.m_len;
-                        };
-                        STR_CPY(filename, filename.m_len, requ.m_location);
-                        if (-1 == stat(filename.mp_data, &url_stat)) {
-                            // 404
-                        }
-                        if (S_ISDIR(url_stat.st_mode))
-                        {
-                            if ('/' != filename.mp_data[filename.m_len - 1]) {
-                                filename.mp_data[filename.m_len] = '/';
-                                ++filename.m_len;
-                            }
-                            STR_CPY(filename, filename.m_len, INDEX_FILE);
-                        }
-
-                        fprintf(stderr, "filename: %s\n", filename.mp_data);
-                        rdfd = open(filename.mp_data, O_RDONLY);
-                        
-                        
-                        clean_buf(p_recv_buf);
+                if (is_buf_empty(p_recv_buf)) {
+                    if (-1 == doublesize_buf(p_recv_buf)) {
+                        loop_err = TRUE;
 
                         break;
-                    } else {
+                    }
+                }
+
+                ASSERT(!is_buf_empty(p_recv_buf));
+                recved_size = recv(fd,
+                                   &p_recv_buf->mp_data[
+                                       p_recv_buf->m_content_len],
+                                   p_recv_buf->m_size
+                                       - p_recv_buf->m_content_len - 1,
+                                   0);
+                recv_errno = errno;
+                if (recved_size > 0) { // 还有数据要收
+                    p_recv_buf->m_content_len += recved_size;
+
+                    continue; // 轮到下一描述符
+                } else if ((-1 == recved_size) && (EAGAIN == recv_errno)) {
+                    char fn_buf[PATH_MAX] = {0};
+                    str_t filename = {
+                        fn_buf, 0,
+                    };
+                    int rdfd = 0;
+                    struct stat url_stat = {0};
+                    http_request_t requ = {
+                        {
+                            NULL, 0,
+                        },
+                    };
+
+                    // 收完数据
+                    fprintf(stderr,
+                            "[fd:%d] %s\n",
+                            fd,
+                            p_recv_buf->mp_data);
+
+                    requ.m_location.mp_data = p_recv_buf->mp_data;
+                    while ('/' != *requ.m_location.mp_data) {
+                        ++requ.m_location.mp_data;
+                    }
+                    ASSERT(0 == requ.m_location.m_len);
+                    for (int i = 0;
+                         0x0a != requ.m_location.mp_data[i];
+                         ++i)
+                    {
+                        ++requ.m_location.m_len;
+                    }
+                    STR_CPY(filename, 0, path_root);
+                    if ('/' == filename.mp_data[filename.m_len - 1])
+                    {
+                        filename.mp_data[filename.m_len] = '\0';
+                        --filename.m_len;
+                    };
+                    STR_CPY(filename, filename.m_len, requ.m_location);
+                    if (-1 == stat(filename.mp_data, &url_stat)) {
+                        // 404
                         clean_buf(&p_clt->m_recv_buf);
                         clean_buf(&p_clt->m_send_buf);
                         rm_node(&p_clients, &p_clt->m_node);
                         add_node(&p_free_clients, &p_clt->m_node);
                         close(fd);
 
-                        break;
+                        continue;
                     }
-                } // end of while for recving data
+                    if (S_ISDIR(url_stat.st_mode))
+                    {
+                        if ('/' != filename.mp_data[filename.m_len - 1]) {
+                            filename.mp_data[filename.m_len] = '/';
+                            ++filename.m_len;
+                        }
+                        STR_CPY(filename, filename.m_len, INDEX_FILE);
+                    }
+                    fprintf(stderr, "filename: %s\n", filename.mp_data);
+                    rdfd = open(filename.mp_data, O_RDONLY);
+                    if (-1 == rdfd) {
+                        clean_buf(&p_clt->m_recv_buf);
+                        clean_buf(&p_clt->m_send_buf);
+                        rm_node(&p_clients, &p_clt->m_node);
+                        add_node(&p_free_clients, &p_clt->m_node);
+                        close(fd);
 
-                p_recv_buf->mp_data[p_recv_buf->m_size - 1] = '\0';
+                        continue;
+                    }
 
-                if (loop_err) {
-                    break;
+                    snprintf(p_send_buf->mp_data,
+                                 p_send_buf->m_size,
+                                 HTTP200
+                                 SERVER_NAME
+                                 "Content-Length: 13\r\n"
+                                 "Cache-Control: no-cache\r\n"
+                                 "Connection: keep-alive\r\n"
+                                 "Content-Type: text/html\r\n\r\n");
+
+                    close(rdfd);
+                    clean_buf(p_recv_buf);
+                } else {
+                    // 该套接字上发生错误，清理资源关闭连接
+                    clean_buf(&p_clt->m_recv_buf);
+                    clean_buf(&p_clt->m_send_buf);
+                    rm_node(&p_clients, &p_clt->m_node);
+                    add_node(&p_free_clients, &p_clt->m_node);
+                    close(fd);
+
+                    continue; // 轮到下一描述符
                 }
 
+                // ***** send *****
+#define BUFFER      HTTP200 \
+                    SERVER_NAME \
+                    "Content-Length: 13\r\n" \
+                    "Cache-Control: no-cache\r\n" \
+                    "Connection: keep-alive\r\n" \
+                    "Content-Type: text/html\r\n\r\n" \
+                    "Hello, World!"
                 send(fd, BUFFER, sizeof(BUFFER), 0);
-
 #undef BUFFER
             } // end of data input
         } // end of fd set ergodic
@@ -657,7 +725,7 @@ int main(int argc, char *argv[])
             break;
         }
     }
-    
+
     if (loop_err) {
         goto LOOP_ERR;
     }
