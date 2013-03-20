@@ -14,6 +14,7 @@
 #include <sys/resource.h>
 #include <sys/select.h>
 #include <netinet/in.h>
+#include <linux/limits.h>
 
 
 #ifndef __GNUC__
@@ -118,6 +119,19 @@ typedef struct {
 #define REUSEADDR       TRUE
 
 extern int errno;
+
+// 字符串
+typedef struct {
+    char *mp_data;
+    int_t m_len;
+} str_t;
+#define STR_CPY(str_dst, dst_offset, str_src)   {\
+            (void)memcpy(str_dst.mp_data + dst_offset, \
+                         str_src.mp_data, \
+                         str_src.m_len);\
+            str_dst.m_len = str_src.m_len;\
+            str_dst.mp_data[str_dst.m_len] = '\0';\
+        }
 
 // 单链表
 typedef intptr_t list_t;
@@ -287,12 +301,17 @@ void destroy_buf(buf_t *const THIS)
     THIS->m_content_len = 0;
 }
 
+// http请求
+typedef struct {
+    str_t m_location;
+} http_request_t;
 
 // connection列表
 typedef struct {
     int m_cmnct_fd;
     list_t m_node;
-    buf_t m_buf; // 当前连接缓冲
+    buf_t m_recv_buf; // 接收缓冲
+    buf_t m_send_buf; // 发送缓冲
 } client_t;
 
 #define HTML32DOCTYPE           \
@@ -320,6 +339,14 @@ typedef struct {
 // server line
 #define SERVER_NAME             "Server: shfs/1.0\r\n"
 
+#define INDEX_FILE_STRING       "index.html"
+static str_t const INDEX_FILE = {
+    INDEX_FILE_STRING,
+    sizeof(INDEX_FILE_STRING) - 1,
+};
+static str_t path_root = {
+    NULL, 0,
+};
 
 int main(int argc, char *argv[])
 {
@@ -352,6 +379,9 @@ int main(int argc, char *argv[])
         fprintf(stderr, "usage: shfs filename\n");
 
         goto FINAL;
+    } else {
+        path_root.mp_data = argv[1];
+        path_root.m_len = strlen(argv[1]);
     }
 
     // 获得能打开的最大描述符数目
@@ -482,10 +512,20 @@ int main(int argc, char *argv[])
     
                 // 加入到客户端列表
                 p_clt->m_cmnct_fd = cmnct_fd;
-                if (is_buf_empty(&p_clt->m_buf)) { // 第一次使用分配接收缓冲
-                    if (-1 == create_buf(&p_clt->m_buf, MIN_BUF_SIZE)) {
+
+                // 第一次使用分配缓冲
+                if (is_buf_empty(&p_clt->m_recv_buf)) {
+                    if (-1 == create_buf(&p_clt->m_recv_buf, MIN_BUF_SIZE)) {
                         loop_err = TRUE;
-                        fprintf(stderr, "[ERROR] create buf failed!\n");
+                        fprintf(stderr, "[ERROR] create recv buf failed!\n");
+
+                        break;
+                    }
+                }
+                if (is_buf_empty(&p_clt->m_send_buf)) {
+                    if (-1 == create_buf(&p_clt->m_send_buf, MIN_BUF_SIZE)) {
+                        loop_err = TRUE;
+                        fprintf(stderr, "[ERROR] create send buf failed!\n");
 
                         break;
                     }
@@ -502,7 +542,7 @@ int main(int argc, char *argv[])
 
                 int recv_errno = 0;
                 client_t *p_clt = NULL;
-                buf_t *p_buf = NULL;
+                buf_t *p_recv_buf = NULL;
 
                 for (list_t *p_iter = p_clients;
                      NULL != p_iter;
@@ -511,50 +551,97 @@ int main(int argc, char *argv[])
                     p_clt = CONTAINER_OF(p_iter, client_t, m_node);
 
                     if (fd == p_clt->m_cmnct_fd) {
-                        p_buf = &p_clt->m_buf;
+                        p_recv_buf = &p_clt->m_recv_buf;
 
                         break;
                     }
                 }
-                ASSERT(NULL != p_buf);
+                ASSERT(NULL != p_recv_buf);
 
-                while (TRUE) {                    
+                while (TRUE) {
                     ssize_t recved_size = 0;
 
                     recved_size = recv(fd,
-                                       &p_buf->mp_data[p_buf->m_content_len],
-                                       p_buf->m_size - p_buf->m_content_len,
+                                       &p_recv_buf->mp_data[
+                                           p_recv_buf->m_content_len],
+                                       p_recv_buf->m_size
+                                           - p_recv_buf->m_content_len,
                                        0);
                     recv_errno = errno;
 
                     if (recved_size > 0) {
-                        p_buf->m_content_len += recved_size;
+                        p_recv_buf->m_content_len += recved_size;
 
                         // 缓冲满
-                        if (p_buf->m_size - p_buf->m_content_len > 0) {
+                        if (p_recv_buf->m_size - p_recv_buf->m_content_len > 0) {
                             continue;
                         }
-                        if (-1 == doublesize_buf(p_buf)) {
+                        if (-1 == doublesize_buf(p_recv_buf)) {
                             loop_err = TRUE;
 
                             break;
                         }
                     } else if ((-1 == recved_size) && (EAGAIN == recv_errno)) {
+                        char fn_buf[PATH_MAX] = {0};
+                        str_t filename = {
+                            fn_buf, 0,
+                        };
+                        int rdfd = 0;
+                        struct stat url_stat = {0};
+                        http_request_t requ = {
+                            {
+                                NULL, 0,
+                            },
+                        };
+
                         // 收完数据
-                        fprintf(stderr, "[fd:%d] %s\n", fd, p_buf->mp_data);
-                        clean_buf(p_buf);
+                        fprintf(stderr, "[fd:%d] %s\n", fd, p_recv_buf->mp_data);
+                        requ.m_location.mp_data = p_recv_buf->mp_data;
+                        while ('/' != *requ.m_location.mp_data) {
+                            ++requ.m_location.mp_data;
+                        }
+                        ASSERT(0 == requ.m_location.m_len);
+                        for (int i = 0; ' ' != requ.m_location.mp_data[i]; ++i) {
+                            ++requ.m_location.m_len;
+                        }
+                        STR_CPY(filename, 0, path_root);
+                        if ('/' == filename.mp_data[filename.m_len - 1])
+                        {
+                            filename.mp_data[filename.m_len] = '\0';
+                            --filename.m_len;
+                        };
+                        STR_CPY(filename, filename.m_len, requ.m_location);
+                        if (-1 == stat(filename.mp_data, &url_stat)) {
+                            // 404
+                        }
+                        if (S_ISDIR(url_stat.st_mode))
+                        {
+                            if ('/' != filename.mp_data[filename.m_len - 1]) {
+                                filename.mp_data[filename.m_len] = '/';
+                                ++filename.m_len;
+                            }
+                            STR_CPY(filename, filename.m_len, INDEX_FILE);
+                        }
+
+                        fprintf(stderr, "filename: %s\n", filename.mp_data);
+                        rdfd = open(filename.mp_data, O_RDONLY);
+                        
+                        
+                        clean_buf(p_recv_buf);
 
                         break;
                     } else {
-                        clean_buf(&p_clt->m_buf);
+                        clean_buf(&p_clt->m_recv_buf);
+                        clean_buf(&p_clt->m_send_buf);
                         rm_node(&p_clients, &p_clt->m_node);
                         add_node(&p_free_clients, &p_clt->m_node);
                         close(fd);
 
                         break;
                     }
-                }
-                p_buf->mp_data[p_buf->m_size - 1] = '\0';
+                } // end of while for recving data
+
+                p_recv_buf->mp_data[p_recv_buf->m_size - 1] = '\0';
 
                 if (loop_err) {
                     break;
@@ -563,8 +650,8 @@ int main(int argc, char *argv[])
                 send(fd, BUFFER, sizeof(BUFFER), 0);
 
 #undef BUFFER
-            }
-        }
+            } // end of data input
+        } // end of fd set ergodic
 
         if (loop_err) {
             break;
@@ -585,7 +672,8 @@ LOOP_ERR:
         {
             client_t *p_clt = CONTAINER_OF(p_iter, client_t, m_node);
 
-            destroy_buf(&p_clt->m_buf);
+            destroy_buf(&p_clt->m_recv_buf);
+            destroy_buf(&p_clt->m_send_buf);
             close(p_clt->m_cmnct_fd);
         }
         FD_ZERO(&fds);
