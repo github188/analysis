@@ -171,9 +171,22 @@ int offset_to_str(off_t value, str_t target)
         value_tmp = next_value;
         ++real_len;
     }
+    reverse_str(target);
 
     return real_len;
 }
+
+// 服务根目录
+static str_t path_root = {
+    NULL, 0,
+};
+
+// 默认访问文件
+#define INDEX_FILE_STRING       "index.html"
+static str_t const INDEX_FILE = {
+    INDEX_FILE_STRING,
+    sizeof(INDEX_FILE_STRING) - 1,
+};
 
 // 单链表
 typedef intptr_t list_t;
@@ -209,6 +222,11 @@ void rm_node(list_t **pp_list, list_t *p_node)
 
     return;
 }
+
+static list_t *p_free_clients = NULL; // 空闲客户端
+static list_t *p_clients = NULL; // 客户端列表
+static list_t *sp_recv_queue = NULL;
+static list_t *sp_send_queue = NULL;
 
 #ifndef NDEBUG
 void test(void)
@@ -351,10 +369,30 @@ void destroy_buf(buf_t *const THIS)
     THIS->m_content_len = 0;
 }
 
+// ***** 处理http请求 *****
+// http请求方法
+static str_t const GET_METHOD = {
+    "GET",
+    sizeof("GET") - 1,
+};
+static str_t const POST_METHOD = {
+    "POST",
+    sizeof("POST") - 1,
+};
+
 // http请求
 typedef struct {
-    str_t m_location;
+    str_t const *mpc_requ_method;
+    str_t m_filepath;
+    char m_path_buf[PATH_MAX]; // 请求的文件路径
 } http_request_t;
+
+// http响应状态
+enum {
+    RS_HTTP_200 = 200,
+    RS_HTTP_403 = 403,
+    RS_HTTP_404 = 404,
+} response_status_t;
 
 // connection列表
 typedef struct {
@@ -365,17 +403,38 @@ typedef struct {
     int m_sent_len; // 已发送长度
 } client_t;
 
-#define HTML32DOCTYPE           \
-            "<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML 3.2 Final//EN\">\r\n"
+
+// html head
+#define HTML32DOCTYPE           "<!DOCTYPE html>\r\n"
+
+// server line
+#define SERVER_NAME             "Server: shfs/1.0\r\n"
 
 // status line
 #define HTTP200                 "HTTP/1.1 200 OK\r\n"
+#define HTTP403                 "HTTP/1.1 403 Forbidden\r\n"
+#define HTTP403CONTENT          \
+            HTML32DOCTYPE \
+            "<head>\r\n" \
+            "    <title>\r\n" \
+            "        exception\r\n" \
+            "    </title>\r\n" \
+            "</head>\r\n" \
+            "<body>\r\n" \
+            "    <p>\r\n" \
+            "        error code 403.\r\n" \
+            "    </p>\r\n" \
+            "    <p>\r\n" \
+            "        message: not authorization.\r\n" \
+            "    </p>\r\n" \
+            "</body>\r\n"
+#define HTTP403CONTENT_LEN      (sizeof(HTTP403CONTENT) - 1)
 #define HTTP404                 "HTTP/1.1 404 File Not Found\r\n"
 #define HTTP404CONTENT          \
             HTML32DOCTYPE \
             "<head>\r\n" \
             "    <title>\r\n" \
-            "        error response\r\n" \
+            "        exception\r\n" \
             "    </title>\r\n" \
             "</head>\r\n" \
             "<body>\r\n" \
@@ -386,18 +445,171 @@ typedef struct {
             "        message: file not found.\r\n" \
             "    </p>\r\n" \
             "</body>\r\n"
+#define HTTP404CONTENT_LEN      (sizeof(HTTP404CONTENT) - 1)
 
-// server line
-#define SERVER_NAME             "Server: shfs/1.0\r\n"
 
-#define INDEX_FILE_STRING       "index.html"
-static str_t const INDEX_FILE = {
-    INDEX_FILE_STRING,
-    sizeof(INDEX_FILE_STRING) - 1,
-};
-static str_t path_root = {
-    NULL, 0,
-};
+static int handle_http_request(client_t *p_clt, http_request_t *p_request)
+{
+    int rslt = 0;
+    str_t filename = {
+        NULL, 0,
+    };
+    buf_t *p_recv_buf = NULL;
+
+    ASSERT(NULL != p_clt);
+    p_recv_buf = &p_clt->m_recv_buf;
+
+    // 收完数据
+    (void)fprintf(stderr,
+                  "[fd:%d] %s\n",
+                  p_clt->m_cmnct_fd,
+                  p_recv_buf->mp_data);
+
+    // 初始化文件名
+    filename.mp_data = p_recv_buf->mp_data;
+    while ('/' != *filename.mp_data) {
+        ++filename.mp_data;
+    }
+    ASSERT(0 == filename.m_len);
+    for (int i = 0;
+         0x0a != filename.mp_data[i];
+         ++i)
+    {
+        ++filename.m_len;
+    }
+
+    // 初始化请求路径
+    p_request->m_filepath.mp_data = p_request->m_path_buf; // 防止未初始化
+    p_request->m_filepath.m_len = 0; // 防止未初始化
+    p_request->mpc_requ_method = &GET_METHOD;
+    STR_CPY(p_request->m_filepath, 0, path_root);
+    if ('/' == p_request->m_filepath.mp_data[p_request->m_filepath.m_len - 1])
+    {
+        p_request->m_filepath.mp_data[p_request->m_filepath.m_len - 1] = '\0';
+        --p_request->m_filepath.m_len;
+    }
+    STR_CPY(p_request->m_filepath, p_request->m_filepath.m_len, filename);
+    
+    return rslt;
+}
+    
+
+static int handle_http_response(client_t *p_clt,
+                                http_request_t *p_requ)
+{
+    int rslt = 0;
+    int rsp = 0;
+    int rdfd = 0;
+    struct stat fp_stat;
+    buf_t *p_send_buf = NULL;
+
+    ASSERT(NULL != p_clt);
+    p_send_buf = &p_clt->m_send_buf;
+
+    if (-1 == stat(p_requ->m_filepath.mp_data, &fp_stat)) {
+        // 404
+        rsp = RS_HTTP_404;
+
+        goto SEND;
+    }
+
+    if (S_ISDIR(fp_stat.st_mode)) {
+        if ('/' != p_requ->m_filepath.mp_data[p_requ->m_filepath.m_len - 1]) {
+            p_requ->m_filepath.mp_data[p_requ->m_filepath.m_len] = '/';
+            ++p_requ->m_filepath.m_len;
+        }
+        STR_CPY(p_requ->m_filepath, p_requ->m_filepath.m_len, INDEX_FILE);
+    }
+    rdfd = open(p_requ->m_filepath.mp_data, O_RDONLY);
+    if (-1 == rdfd) {
+        // 403
+        rslt = RS_HTTP_403;
+
+        goto SEND;
+    }
+    rsp = RS_HTTP_200;
+
+SEND:
+    switch (rsp) {
+    case RS_HTTP_200:
+        {
+            snprintf(p_send_buf->mp_data,
+                     p_send_buf->m_size,
+                     HTTP200
+                     SERVER_NAME
+                     "Content-Length: 13\r\n"
+                     "Cache-Control: no-cache\r\n"
+                     "Connection: keep-alive\r\n"
+                     "Content-Type: text/html\r\n\r\n"
+                     "Hello, World!");
+            send(p_clt->m_cmnct_fd,
+                 p_send_buf->mp_data,
+                 p_send_buf->m_size,
+                 0);
+
+            break;
+        }
+    case RS_HTTP_403:
+        {
+            str_t len = {NULL};
+            char content_len[32] = {0x00};
+
+            len.mp_data = content_len;
+            (void)offset_to_str(HTTP404CONTENT_LEN, len);
+            snprintf(p_send_buf->mp_data,
+                     p_send_buf->m_size,
+                     HTTP403
+                     SERVER_NAME
+                     "Content-Length: %s\r\n"
+                     "Cache-Control: no-cache\r\n"
+                     "Connection: keep-alive\r\n"
+                     "Content-Type: text/html\r\n\r\n",
+                     len.mp_data);
+            send(p_clt->m_cmnct_fd,
+                 p_send_buf->mp_data,
+                 p_send_buf->m_size,
+                 0);
+
+            break;
+        }
+    case RS_HTTP_404:
+        {
+            str_t len = {NULL};
+            char content_len[32] = {0x00};
+
+            len.mp_data = content_len;
+            (void)offset_to_str(HTTP404CONTENT_LEN, len);
+            snprintf(p_send_buf->mp_data,
+                     p_send_buf->m_size,
+                     HTTP404
+                     SERVER_NAME
+                     "Content-Length: %s\r\n"
+                     "Cache-Control: no-cache\r\n"
+                     "Connection: keep-alive\r\n"
+                     "Content-Type: text/html\r\n\r\n",
+                     len.mp_data);
+            send(p_clt->m_cmnct_fd,
+                 p_send_buf->mp_data,
+                 p_send_buf->m_size,
+                 0);
+
+            break;
+        }
+    default:
+        {
+            ASSERT(0);
+
+            break;
+        }
+    }
+
+    
+    (void)close(rdfd);
+    clean_buf(p_send_buf);
+
+    return rslt;
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -418,8 +630,6 @@ int main(int argc, char *argv[])
     fd_set fds = {{0}};
 
     client_t *p_client_cache = NULL;
-    list_t *p_free_clients = NULL; // 空闲客户端
-    list_t *p_clients = NULL; // 客户端列表
 
     int loop_err = 0;
 
@@ -517,14 +727,17 @@ int main(int argc, char *argv[])
 
         nevents = select(sockets_max + 1, &fds, NULL, NULL, &io_wait_tv);
 
-        if (0 == nevents) { // time out
-            continue;
-        }
         if (-1 == nevents) {
             loop_err = TRUE;
             fprintf(stderr, "[ERROR] select failed: %s.\n", strerror(errno));
 
             break;
+        } else {
+            // 收队列中多余数据
+        }
+
+        if (0 == nevents) { // time out
+            continue;
         }
 
         for (int fd = 0; fd < sockets_max; ++fd) {
@@ -584,13 +797,16 @@ int main(int argc, char *argv[])
                 }
                 add_node(&p_clients, &p_clt->m_node);
             } else { // data input
-
+                http_request_t hr = {
+                    NULL,
+                };
                 int_t recved_size = 0;
                 int_t recv_errno = 0;
                 client_t *p_clt = NULL;
                 buf_t *p_recv_buf = NULL;
                 buf_t *p_send_buf = NULL;
 
+                // 查询client
                 for (list_t *p_iter = p_clients;
                      NULL != p_iter;
                      p_iter = (list_t *)*p_iter)
@@ -625,86 +841,10 @@ int main(int argc, char *argv[])
                 recv_errno = errno;
                 if (recved_size > 0) { // 还有数据要收
                     p_recv_buf->m_content_len += recved_size;
-
-                    continue; // 轮到下一描述符
+                    add_node(&sp_recv_queue, &p_clt->m_node); // 加入接收队列
                 } else if ((-1 == recved_size) && (EAGAIN == recv_errno)) {
-                    char fn_buf[PATH_MAX] = {0};
-                    str_t filename = {
-                        fn_buf, 0,
-                    };
-                    int rdfd = 0;
-                    struct stat url_stat = {0};
-                    http_request_t requ = {
-                        {
-                            NULL, 0,
-                        },
-                    };
-
-                    // 收完数据
-                    fprintf(stderr,
-                            "[fd:%d] %s\n",
-                            fd,
-                            p_recv_buf->mp_data);
-
-                    requ.m_location.mp_data = p_recv_buf->mp_data;
-                    while ('/' != *requ.m_location.mp_data) {
-                        ++requ.m_location.mp_data;
-                    }
-                    ASSERT(0 == requ.m_location.m_len);
-                    for (int i = 0;
-                         0x0a != requ.m_location.mp_data[i];
-                         ++i)
-                    {
-                        ++requ.m_location.m_len;
-                    }
-                    STR_CPY(filename, 0, path_root);
-                    if ('/' == filename.mp_data[filename.m_len - 1])
-                    {
-                        filename.mp_data[filename.m_len] = '\0';
-                        --filename.m_len;
-                    };
-                    STR_CPY(filename, filename.m_len, requ.m_location);
-                    if (-1 == stat(filename.mp_data, &url_stat)) {
-                        // 404
-                        clean_buf(&p_clt->m_recv_buf);
-                        clean_buf(&p_clt->m_send_buf);
-                        rm_node(&p_clients, &p_clt->m_node);
-                        add_node(&p_free_clients, &p_clt->m_node);
-                        close(fd);
-
-                        continue;
-                    }
-                    if (S_ISDIR(url_stat.st_mode))
-                    {
-                        if ('/' != filename.mp_data[filename.m_len - 1]) {
-                            filename.mp_data[filename.m_len] = '/';
-                            ++filename.m_len;
-                        }
-                        STR_CPY(filename, filename.m_len, INDEX_FILE);
-                    }
-                    fprintf(stderr, "filename: %s\n", filename.mp_data);
-                    rdfd = open(filename.mp_data, O_RDONLY);
-                    if (-1 == rdfd) {
-                        clean_buf(&p_clt->m_recv_buf);
-                        clean_buf(&p_clt->m_send_buf);
-                        rm_node(&p_clients, &p_clt->m_node);
-                        add_node(&p_free_clients, &p_clt->m_node);
-                        close(fd);
-
-                        continue;
-                    }
-
-                    snprintf(p_send_buf->mp_data,
-                                 p_send_buf->m_size,
-                                 HTTP200
-                                 SERVER_NAME
-                                 "Content-Length: 13\r\n"
-                                 "Cache-Control: no-cache\r\n"
-                                 "Connection: keep-alive\r\n"
-                                 "Content-Type: text/html\r\n\r\n");
-
-                    close(rdfd);
-                    clean_buf(p_recv_buf);
+                    (void)handle_http_request(p_clt, &hr);
+                    handle_http_response(p_clt, &hr);
                 } else {
                     // 该套接字上发生错误，清理资源关闭连接
                     clean_buf(&p_clt->m_recv_buf);
@@ -712,20 +852,7 @@ int main(int argc, char *argv[])
                     rm_node(&p_clients, &p_clt->m_node);
                     add_node(&p_free_clients, &p_clt->m_node);
                     close(fd);
-
-                    continue; // 轮到下一描述符
                 }
-
-                // ***** send *****
-#define BUFFER      HTTP200 \
-                    SERVER_NAME \
-                    "Content-Length: 13\r\n" \
-                    "Cache-Control: no-cache\r\n" \
-                    "Connection: keep-alive\r\n" \
-                    "Content-Type: text/html\r\n\r\n" \
-                    "Hello, World!"
-                send(fd, BUFFER, sizeof(BUFFER), 0);
-#undef BUFFER
             } // end of data input
         } // end of fd set ergodic
 
