@@ -294,7 +294,7 @@ void clean_buf(buf_t *const THIS)
 }
 
 static inline
-int_t is_buf_empty(buf_t *const THIS)
+int is_buf_empty(buf_t *const THIS)
 {
     ASSERT(NULL != THIS);
 
@@ -302,9 +302,17 @@ int_t is_buf_empty(buf_t *const THIS)
 }
 
 static inline
-int_t doublesize_buf(buf_t *const THIS)
+int is_buf_full(buf_t *const THIS)
 {
-    int_t rslt = 0;
+    ASSERT(NULL != THIS);
+
+    return (THIS->m_content_len < THIS->m_size - 1) ? FALSE : TRUE;
+}
+
+static inline
+int doublesize_buf(buf_t *const THIS)
+{
+    int rslt = 0;
     char *p_tmp = NULL;
     ssize_t tmp_size = 2 * THIS->m_size;
 
@@ -504,8 +512,8 @@ int main(int argc, char *argv[])
         }
 
         // 重置定时器
-        io_wait_tv.tv_sec = 10;
-        io_wait_tv.tv_usec = 0;
+        io_wait_tv.tv_sec = 0;
+        io_wait_tv.tv_usec = 20 * 1000; // 20毫秒定时器
 
         nevents = select(sockets_max + 1, &fds, NULL, NULL, &io_wait_tv);
 
@@ -599,7 +607,7 @@ int main(int argc, char *argv[])
 
                 // ***** recv *****
                 ASSERT(NULL != p_recv_buf);
-                if (is_buf_empty(p_recv_buf)) {
+                if (is_buf_full(p_recv_buf)) {
                     if (-1 == doublesize_buf(p_recv_buf)) {
                         loop_err = TRUE;
 
@@ -607,7 +615,7 @@ int main(int argc, char *argv[])
                     }
                 }
 
-                ASSERT(!is_buf_empty(p_recv_buf));
+                ASSERT(!is_buf_full(p_recv_buf));
                 recved_size = recv(fd,
                                    &p_recv_buf->mp_data[
                                        p_recv_buf->m_content_len],
