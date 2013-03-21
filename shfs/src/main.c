@@ -127,10 +127,10 @@ typedef struct {
 } str_t;
 
 #define STR_CPY(str_dst, dst_offset, str_src)   {\
-            (void)memcpy(str_dst.mp_data + dst_offset, \
+            (void)memcpy(&str_dst.mp_data[dst_offset], \
                          str_src.mp_data, \
                          str_src.m_len);\
-            str_dst.m_len = str_src.m_len;\
+            str_dst.m_len = str_src.m_len + dst_offset;\
             str_dst.mp_data[str_dst.m_len] = '\0';\
         }
 
@@ -152,27 +152,31 @@ void reverse_str(str_t target)
 }
 
 static inline
-int offset_to_str(off_t value, str_t target)
+int offset_to_str(off_t value, str_t target, int n)
 {
-    int iter = 0;
     int real_len = 0;
     off_t value_tmp = value;
 
-    ASSERT(value > 0);
     ASSERT(NULL != target.mp_data);
-    ASSERT(target.m_len > 0);
 
-    ASSERT(0 == iter);
+    if (value < 0) {
+        real_len = -1;
+
+        goto FINAL;
+    }
+
+    target.m_len = 0;
     ASSERT(0 == real_len);
-    while ((0 != value_tmp) && (iter < target.m_len)) {
+    while ((0 != value_tmp) && (target.m_len < n)) {
         off_t next_value = value_tmp / 10;
 
-        target.mp_data[iter++] = value_tmp - next_value * 10 + '0';
+        target.mp_data[target.m_len++] = value_tmp - next_value * 10 + '0';
         value_tmp = next_value;
         ++real_len;
     }
     reverse_str(target);
 
+FINAL:
     return real_len;
 }
 
@@ -472,7 +476,7 @@ static int handle_http_request(client_t *p_clt, http_request_t *p_request)
     }
     ASSERT(0 == filename.m_len);
     for (int i = 0;
-         0x0a != filename.mp_data[i];
+         0x20 != filename.mp_data[i];
          ++i)
     {
         ++filename.m_len;
@@ -489,10 +493,10 @@ static int handle_http_request(client_t *p_clt, http_request_t *p_request)
         --p_request->m_filepath.m_len;
     }
     STR_CPY(p_request->m_filepath, p_request->m_filepath.m_len, filename);
-    
+
     return rslt;
 }
-    
+
 
 static int handle_http_response(client_t *p_clt,
                                 http_request_t *p_requ)
@@ -522,8 +526,8 @@ static int handle_http_response(client_t *p_clt,
     }
     rdfd = open(p_requ->m_filepath.mp_data, O_RDONLY);
     if (-1 == rdfd) {
-        // 403
-        rslt = RS_HTTP_403;
+        // 404
+        rsp = RS_HTTP_404;
 
         goto SEND;
     }
@@ -533,68 +537,83 @@ SEND:
     switch (rsp) {
     case RS_HTTP_200:
         {
-            snprintf(p_send_buf->mp_data,
-                     p_send_buf->m_size,
-                     HTTP200
-                     SERVER_NAME
-                     "Content-Length: 13\r\n"
-                     "Cache-Control: no-cache\r\n"
-                     "Connection: keep-alive\r\n"
-                     "Content-Type: text/html\r\n\r\n"
-                     "Hello, World!");
+            int ntow = 0;
+
+            ntow = snprintf(p_send_buf->mp_data,
+                            p_send_buf->m_size,
+                            HTTP200
+                            SERVER_NAME
+                            "Content-Length: 13\r\n"
+                            "Cache-Control: no-cache\r\n"
+                            "Connection: keep-alive\r\n"
+                            "Content-Type: text/html\r\n\r\n"
+                            "Hello, World!");
+            p_send_buf->m_content_len = MIN(ntow, p_send_buf->m_size);
             send(p_clt->m_cmnct_fd,
                  p_send_buf->mp_data,
-                 p_send_buf->m_size,
+                 p_send_buf->m_content_len,
                  0);
 
             break;
         }
     case RS_HTTP_403:
         {
+            int ntow = 0;
             str_t len = {NULL};
             char content_len[32] = {0x00};
 
             len.mp_data = content_len;
-            (void)offset_to_str(HTTP404CONTENT_LEN, len);
-            snprintf(p_send_buf->mp_data,
-                     p_send_buf->m_size,
-                     HTTP403
-                     SERVER_NAME
-                     "Content-Length: %s\r\n"
-                     "Cache-Control: no-cache\r\n"
-                     "Connection: keep-alive\r\n"
-                     "Content-Type: text/html\r\n\r\n",
-                     len.mp_data);
+            len.m_len = 0;
+            ASSERT(0 < offset_to_str(HTTP404CONTENT_LEN,
+                                     len,
+                                     ARRAY_COUNT(content_len)));
+            ntow = snprintf(p_send_buf->mp_data,
+                            p_send_buf->m_size,
+                            HTTP403
+                            SERVER_NAME
+                            "Content-Length: %s\r\n"
+                            "Cache-Control: no-cache\r\n"
+                            "Connection: keep-alive\r\n"
+                            "Content-Type: text/html\r\n\r\n"
+                            HTTP403CONTENT,
+                            len.mp_data);
+            p_send_buf->m_content_len = MIN(ntow, p_send_buf->m_size);
             send(p_clt->m_cmnct_fd,
                  p_send_buf->mp_data,
-                 p_send_buf->m_size,
+                 p_send_buf->m_content_len,
                  0);
 
             break;
         }
     case RS_HTTP_404:
         {
+            int ntow = 0;
             str_t len = {NULL};
             char content_len[32] = {0x00};
 
             len.mp_data = content_len;
-            (void)offset_to_str(HTTP404CONTENT_LEN, len);
-            snprintf(p_send_buf->mp_data,
-                     p_send_buf->m_size,
-                     HTTP404
-                     SERVER_NAME
-                     "Content-Length: %s\r\n"
-                     "Cache-Control: no-cache\r\n"
-                     "Connection: keep-alive\r\n"
-                     "Content-Type: text/html\r\n\r\n",
-                     len.mp_data);
-            send(p_clt->m_cmnct_fd,
-                 p_send_buf->mp_data,
-                 p_send_buf->m_size,
-                 0);
+            len.m_len = 0;
+            ASSERT(0 < offset_to_str(HTTP404CONTENT_LEN,
+                                     len,
+                                     ARRAY_COUNT(content_len)));
+            ntow = snprintf(p_send_buf->mp_data,
+                            p_send_buf->m_size,
+                            HTTP404
+                            SERVER_NAME
+                            "Content-Length: %s\r\n"
+                            "Cache-Control: no-cache\r\n"
+                            "Connection: keep-alive\r\n"
+                            "Content-Type: text/html\r\n\r\n"
+                            HTTP404CONTENT,
+                            len.mp_data);
+                p_send_buf->m_content_len = MIN(ntow, p_send_buf->m_size);
+                send(p_clt->m_cmnct_fd,
+                     p_send_buf->mp_data,
+                     p_send_buf->m_content_len,
+                     0);
 
-            break;
-        }
+                break;
+            }
     default:
         {
             ASSERT(0);
@@ -603,7 +622,7 @@ SEND:
         }
     }
 
-    
+
     (void)close(rdfd);
     clean_buf(p_send_buf);
 
@@ -733,7 +752,27 @@ int main(int argc, char *argv[])
 
             break;
         } else {
-            // 收队列中多余数据
+            while (NULL != sp_recv_queue) {
+                client_t *p_clt = NULL;
+                list_t *p_iter = sp_recv_queue;
+
+                rm_node(&sp_recv_queue, p_iter);
+                p_clt = CONTAINER_OF(p_iter, client_t, m_node);
+
+                if (FD_ISSET(p_clt->m_cmnct_fd, &fds)) {
+                    // 已有通知，不管了
+                    continue;
+                } else {
+                    // 说明之前就已经收完了
+                    http_request_t hr;
+
+                    hr.m_filepath.mp_data = hr.m_path_buf;
+                    hr.m_filepath.m_len = 0;
+
+                    (void)handle_http_request(p_clt, &hr);
+                    handle_http_response(p_clt, &hr);
+                }
+            }
         }
 
         if (0 == nevents) { // time out
@@ -846,7 +885,7 @@ int main(int argc, char *argv[])
                     (void)handle_http_request(p_clt, &hr);
                     handle_http_response(p_clt, &hr);
                 } else {
-                    // 该套接字上发生错误，清理资源关闭连接
+                    // 连接断开或发生错误，清理资源
                     clean_buf(&p_clt->m_recv_buf);
                     clean_buf(&p_clt->m_send_buf);
                     rm_node(&p_clients, &p_clt->m_node);
