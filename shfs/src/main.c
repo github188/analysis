@@ -462,12 +462,6 @@ static int handle_http_request(client_t *p_clt, http_request_t *p_request)
     ASSERT(NULL != p_clt);
     p_recv_buf = &p_clt->m_recv_buf;
 
-    // 收完数据
-    (void)fprintf(stderr,
-                  "[fd:%d] %s\n",
-                  p_clt->m_cmnct_fd,
-                  p_recv_buf->mp_data);
-
     // 初始化文件名
     filename.mp_data = p_recv_buf->mp_data;
     while ('/' != *filename.mp_data) {
@@ -720,6 +714,7 @@ int main(int argc, char *argv[])
 
     // 事件循环
     while (TRUE) {
+        int fd_max = lsn_fd;
         int nevents = 0;
 
         // 重置描述符集
@@ -733,6 +728,9 @@ int main(int argc, char *argv[])
             client_t *p_clt = CONTAINER_OF(p_iter, client_t, m_node);
 
             if (0 == fstat(p_clt->m_cmnct_fd, &tmp_stat)) {
+                if (p_clt->m_cmnct_fd > fd_max) {
+                    fd_max = p_clt->m_cmnct_fd;
+                }
                 FD_SET(p_clt->m_cmnct_fd, &fds);
             } else {
                 fprintf(stderr, "[BUG] bad fd: %d\n", p_clt->m_cmnct_fd);
@@ -743,7 +741,7 @@ int main(int argc, char *argv[])
         io_wait_tv.tv_sec = 0;
         io_wait_tv.tv_usec = 20 * 1000; // 20毫秒定时器
 
-        nevents = select(sockets_max + 1, &fds, NULL, NULL, &io_wait_tv);
+        nevents = select(fd_max + 1, &fds, NULL, NULL, &io_wait_tv);
 
         if (-1 == nevents) {
             loop_err = TRUE;
@@ -756,7 +754,7 @@ int main(int argc, char *argv[])
             continue;
         }
 
-        for (int fd = 0; fd < sockets_max; ++fd) {
+        for (int fd = 0; fd < fd_max + 1; ++fd) {
             if (!FD_ISSET(fd, &fds)) {
                 continue;
             }
@@ -775,14 +773,15 @@ int main(int argc, char *argv[])
                                   &socklen);
                 accept_errno = errno;
                 if (cmnct_fd <= 0) {
-                    loop_err = TRUE;
                     fprintf(stderr,
-                            "[ERROR] accept failed: %d(%d).\n",
+                            "[ERROR] accept failed: %d->%d(%d).\n",
+                            lsn_fd,
                             cmnct_fd,
-                            errno);
+                            accept_errno);
 
-                    break;
+                    continue;
                 }
+                fprintf(stderr, "create fd: %d\n", cmnct_fd);
 
                 // 非阻塞io
                 if (-1 == fcntl(cmnct_fd,
@@ -881,11 +880,10 @@ int main(int argc, char *argv[])
                         clean_buf(&p_clt->m_send_buf);
                         rm_node(&p_clients, &p_clt->m_node);
                         add_node(&p_free_clients, &p_clt->m_node);
-                        if (0 == fd) {
-                            ASSERT(0);
-                        } else {
-                            close(fd);
-                        }
+
+                        fprintf(stderr, "close fd: %d\n", p_clt->m_cmnct_fd);
+                        (void)shutdown(p_clt->m_cmnct_fd, SHUT_RDWR);
+                        (void)close(p_clt->m_cmnct_fd);
 
                         break;
                     }
