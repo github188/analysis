@@ -101,19 +101,8 @@ typedef intptr_t handle_t;
 
 #define DO_NOTHING()            do {} while (0)
 
-// 比较交换接口
-enum {
-    CMP_GREATER_THAN = 2,
-    CMP_EQUAL = 3,
-    CMP_LESS_THAN = 5,
-};
 
-typedef struct {
-    int_t (*mpf_compare)(void const *, void const *);
-    void (*mpf_swap)(void *, void *);
-} compare_swap_t;
-
-
+// shfs
 #define LSN_PORT        8000
 
 #define REUSEADDR       TRUE
@@ -371,6 +360,61 @@ void destroy_buf(buf_t *const THIS)
     THIS->m_content_len = 0;
 }
 
+// ***** 处理连接请求 *****
+// 监视的事件类型
+typedef enum {
+    SELECT_MR = 1,
+    SELECT_MW = 1 << 1,
+} select_type_t;
+
+// connection列表
+typedef struct {
+    int m_cmnct_fd;
+    list_t m_node;
+    int m_select_type; // 监视类型
+    struct sockaddr_in m_clt_addr; // 客户端地址
+    buf_t m_recv_buf; // 接收缓冲
+    buf_t m_send_buf; // 发送缓冲
+    int m_sent_len; // 已发送长度
+} client_t;
+
+static int handle_accept(int lsn_fd, client_t *p_clt)
+{
+    int rslt = 0;
+
+    while (TRUE) { // 处理accept返回前连接夭折的情况
+        int accept_errno = 0;
+        socklen_t addrlen = 0;
+
+        rslt = accept(lsn_fd,
+                      (struct sockaddr *)&p_clt->m_clt_addr,
+                      &addrlen);
+        accept_errno = errno;
+        if (rslt > 0) {
+            break;
+        } else if (0 == rslt) {
+            fprintf(stderr,
+                    "[ERROR] accept failed: %d->0(%d).\n",
+                    lsn_fd,
+                    accept_errno);
+            (void)shutdown(rslt, SHUT_RDWR);
+
+            continue;
+        } else if (-1 == rslt) {
+            fprintf(stderr,
+                    "[ERROR] accept failed: %d->-1(%d).\n",
+                    lsn_fd,
+                    accept_errno);
+
+            break;
+        } else {
+            ASSERT(0);
+        }
+    }
+
+    return rslt;
+}
+
 // ***** 处理http请求 *****
 // http请求方法
 static str_t const GET_METHOD = {
@@ -390,21 +434,11 @@ typedef struct {
 } http_request_t;
 
 // http响应状态
-enum {
+typedef enum {
     RS_HTTP_200 = 200,
     RS_HTTP_403 = 403,
     RS_HTTP_404 = 404,
 } response_status_t;
-
-// connection列表
-typedef struct {
-    int m_cmnct_fd;
-    list_t m_node;
-    struct sockaddr_in m_clt_addr; // 客户端地址
-    buf_t m_recv_buf; // 接收缓冲
-    buf_t m_send_buf; // 发送缓冲
-    int m_sent_len; // 已发送长度
-} client_t;
 
 
 // html head
@@ -639,7 +673,8 @@ int main(int argc, char *argv[])
         0, 0,
     };
     int sockets_max = 0;
-    fd_set fds = {{0}};
+    fd_set fds_r = {{0}};
+    fd_set fds_w = {{0}};
 
     client_t *p_client_cache = NULL;
 
@@ -681,15 +716,18 @@ int main(int argc, char *argv[])
     if (-1 == lsn_fd) {
         goto SOCKET_ERR;
     }
-    fprintf(stdout, "[INFO] listen fd: %d\n", lsn_fd);
 
     // 非阻塞io
     if (-1 == fcntl(lsn_fd,
                     F_SETFL,
                     fcntl(lsn_fd, F_GETFL) | O_NONBLOCK))
     {
-        return -1;
+        fprintf(stderr, "[ERROR] fcntl lsn_fd failed.\n");
+
+        goto SOCKET_ERR;
     }
+
+    fprintf(stdout, "[INFO] listen fd: %d\n", lsn_fd);
 
     // 地址重用
     if (-1 == setsockopt(lsn_fd,
@@ -726,8 +764,9 @@ int main(int argc, char *argv[])
         int nevents = 0;
 
         // 重置描述符集
-        FD_ZERO(&fds);
-        FD_SET(lsn_fd, &fds);
+        FD_ZERO(&fds_r);
+        FD_ZERO(&fds_w);
+        FD_SET(lsn_fd, &fds_r);
         for (list_t *p_iter = p_clients;
              NULL != p_iter;
              p_iter = (list_t *)*p_iter)
@@ -739,7 +778,12 @@ int main(int argc, char *argv[])
                 if (p_clt->m_cmnct_fd > fd_max) {
                     fd_max = p_clt->m_cmnct_fd;
                 }
-                FD_SET(p_clt->m_cmnct_fd, &fds);
+                if (p_clt->m_select_type & SELECT_MR) {
+                    FD_SET(p_clt->m_cmnct_fd, &fds_r);
+                }
+                if (p_clt->m_select_type & SELECT_MW) {
+                    FD_SET(p_clt->m_cmnct_fd, &fds_w);
+                }
             } else {
                 fprintf(stderr, "[BUG] bad fd: %d\n", p_clt->m_cmnct_fd);
             }
@@ -749,7 +793,7 @@ int main(int argc, char *argv[])
         io_wait_tv.tv_sec = 0;
         io_wait_tv.tv_usec = 20 * 1000; // 20毫秒定时器
 
-        nevents = select(fd_max + 1, &fds, NULL, NULL, &io_wait_tv);
+        nevents = select(fd_max + 1, &fds_r, &fds_w, NULL, &io_wait_tv);
 
         if (-1 == nevents) {
             loop_err = TRUE;
@@ -763,30 +807,20 @@ int main(int argc, char *argv[])
         }
 
         for (int fd = 0; fd < fd_max + 1; ++fd) {
-            if (!FD_ISSET(fd, &fds)) {
+            if (!FD_ISSET(fd, &fds_r)) {
                 continue;
             }
 
             if (fd == lsn_fd) { // connection input
-                socklen_t socklen = 0;
                 int cmnct_fd = 0;
                 client_t *p_clt = NULL;
-                int accept_errno = 0;
 
                 if (NULL == p_free_clients) { // 无法再接受新连接
                     continue;
                 }
-                cmnct_fd = accept(lsn_fd,
-                                  (struct sockaddr *)&p_clt->m_clt_addr,
-                                  &socklen);
-                accept_errno = errno;
-                if (cmnct_fd <= 0) {
-                    fprintf(stderr,
-                            "[ERROR] accept failed: %d->%d(%d).\n",
-                            lsn_fd,
-                            cmnct_fd,
-                            accept_errno);
-
+                
+                cmnct_fd = handle_accept(lsn_fd, p_clt);
+                if (-1 == cmnct_fd) {
                     continue;
                 }
                 fprintf(stderr, "create fd: %d\n", cmnct_fd);
@@ -826,6 +860,7 @@ int main(int argc, char *argv[])
                         break;
                     }
                 }
+                p_clt->m_select_type |= SELECT_MR; // 监视读事件
                 add_node(&p_clients, &p_clt->m_node);
             } else { // data input
                 http_request_t hr = {
@@ -926,7 +961,7 @@ LOOP_ERR:
             destroy_buf(&p_clt->m_send_buf);
             close(p_clt->m_cmnct_fd);
         }
-        FD_ZERO(&fds);
+        FD_ZERO(&fds_r);
 
 LISTEN_ERR:
 
