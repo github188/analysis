@@ -861,6 +861,10 @@ int main(int argc, char *argv[])
                         (void)handle_http_request(p_clt, &hr);
                         handle_http_response(p_clt, &hr);
 
+                        // 浏览器可能重用连接而使用上次的缓存数据
+                        clean_buf(&p_clt->m_recv_buf);
+                        clean_buf(&p_clt->m_send_buf);
+
                         break;
                     } else {
                         // 连接断开或发生错误，清理资源
