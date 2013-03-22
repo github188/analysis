@@ -400,6 +400,7 @@ enum {
 typedef struct {
     int m_cmnct_fd;
     list_t m_node;
+    struct sockaddr_in m_clt_addr; // 客户端地址
     buf_t m_recv_buf; // 接收缓冲
     buf_t m_send_buf; // 发送缓冲
     int m_sent_len; // 已发送长度
@@ -761,16 +762,24 @@ int main(int argc, char *argv[])
             }
 
             if (fd == lsn_fd) { // connection input
+                socklen_t socklen = 0;
                 int cmnct_fd = 0;
                 client_t *p_clt = NULL;
+                int accept_errno = 0;
 
                 if (NULL == p_free_clients) { // 无法再接受新连接
                     continue;
                 }
-                cmnct_fd = accept(lsn_fd, NULL, NULL);
-                if (-1 == cmnct_fd) {
+                cmnct_fd = accept(lsn_fd,
+                                  (struct sockaddr *)&p_clt->m_clt_addr,
+                                  &socklen);
+                accept_errno = errno;
+                if (cmnct_fd <= 0) {
                     loop_err = TRUE;
-                    fprintf(stderr, "[ERROR] accept failed.\n");
+                    fprintf(stderr,
+                            "[ERROR] accept failed: %d(%d).\n",
+                            cmnct_fd,
+                            errno);
 
                     break;
                 }
@@ -872,7 +881,11 @@ int main(int argc, char *argv[])
                         clean_buf(&p_clt->m_send_buf);
                         rm_node(&p_clients, &p_clt->m_node);
                         add_node(&p_free_clients, &p_clt->m_node);
-                        close(fd);
+                        if (0 == fd) {
+                            ASSERT(0);
+                        } else {
+                            close(fd);
+                        }
 
                         break;
                     }
