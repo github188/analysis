@@ -229,8 +229,6 @@ void rm_node(list_t **pp_list, list_t *p_node)
 
 static list_t *p_free_clients = NULL; // 空闲客户端
 static list_t *p_clients = NULL; // 客户端列表
-static list_t *sp_recv_queue = NULL;
-static list_t *sp_send_queue = NULL;
 
 #ifndef NDEBUG
 void test(void)
@@ -751,28 +749,6 @@ int main(int argc, char *argv[])
             fprintf(stderr, "[ERROR] select failed: %s.\n", strerror(errno));
 
             break;
-        } else {
-            while (NULL != sp_recv_queue) {
-                client_t *p_clt = NULL;
-                list_t *p_iter = sp_recv_queue;
-
-                rm_node(&sp_recv_queue, p_iter);
-                p_clt = CONTAINER_OF(p_iter, client_t, m_node);
-
-                if (FD_ISSET(p_clt->m_cmnct_fd, &fds)) {
-                    // 已有通知，不管了
-                    continue;
-                } else {
-                    // 说明之前就已经收完了
-                    http_request_t hr;
-
-                    hr.m_filepath.mp_data = hr.m_path_buf;
-                    hr.m_filepath.m_len = 0;
-
-                    (void)handle_http_request(p_clt, &hr);
-                    handle_http_response(p_clt, &hr);
-                }
-            }
         }
 
         if (0 == nevents) { // time out
@@ -861,36 +837,45 @@ int main(int argc, char *argv[])
                 }
 
                 // ***** recv *****
-                ASSERT(NULL != p_recv_buf);
-                if (is_buf_full(p_recv_buf)) {
-                    if (-1 == doublesize_buf(p_recv_buf)) {
-                        loop_err = TRUE;
+                while (TRUE) {
+                    ASSERT(NULL != p_recv_buf);
+                    if (is_buf_full(p_recv_buf)) {
+                        if (-1 == doublesize_buf(p_recv_buf)) {
+                            loop_err = TRUE;
+
+                            break;
+                        }
+                    }
+
+                    ASSERT(!is_buf_full(p_recv_buf));
+                    recved_size = recv(fd,
+                                       &p_recv_buf->mp_data[
+                                           p_recv_buf->m_content_len],
+                                       p_recv_buf->m_size
+                                           - p_recv_buf->m_content_len - 1,
+                                       0);
+                    recv_errno = errno;
+                    if (recved_size > 0) { // 还有数据要收
+                        p_recv_buf->m_content_len += recved_size;
+                    } else if ((-1 == recved_size) && (EAGAIN == recv_errno)) {
+                        (void)handle_http_request(p_clt, &hr);
+                        handle_http_response(p_clt, &hr);
+
+                        break;
+                    } else {
+                        // 连接断开或发生错误，清理资源
+                        clean_buf(&p_clt->m_recv_buf);
+                        clean_buf(&p_clt->m_send_buf);
+                        rm_node(&p_clients, &p_clt->m_node);
+                        add_node(&p_free_clients, &p_clt->m_node);
+                        close(fd);
 
                         break;
                     }
-                }
+                } // end of receving data
 
-                ASSERT(!is_buf_full(p_recv_buf));
-                recved_size = recv(fd,
-                                   &p_recv_buf->mp_data[
-                                       p_recv_buf->m_content_len],
-                                   p_recv_buf->m_size
-                                       - p_recv_buf->m_content_len - 1,
-                                   0);
-                recv_errno = errno;
-                if (recved_size > 0) { // 还有数据要收
-                    p_recv_buf->m_content_len += recved_size;
-                    add_node(&sp_recv_queue, &p_clt->m_node); // 加入接收队列
-                } else if ((-1 == recved_size) && (EAGAIN == recv_errno)) {
-                    (void)handle_http_request(p_clt, &hr);
-                    handle_http_response(p_clt, &hr);
-                } else {
-                    // 连接断开或发生错误，清理资源
-                    clean_buf(&p_clt->m_recv_buf);
-                    clean_buf(&p_clt->m_send_buf);
-                    rm_node(&p_clients, &p_clt->m_node);
-                    add_node(&p_free_clients, &p_clt->m_node);
-                    close(fd);
+                if (loop_err) {
+                    break;
                 }
             } // end of data input
         } // end of fd set ergodic
