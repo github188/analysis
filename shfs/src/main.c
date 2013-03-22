@@ -683,6 +683,14 @@ int main(int argc, char *argv[])
     }
     fprintf(stdout, "[INFO] listen fd: %d\n", lsn_fd);
 
+    // 非阻塞io
+    if (-1 == fcntl(lsn_fd,
+                    F_SETFL,
+                    fcntl(lsn_fd, F_GETFL) | O_NONBLOCK))
+    {
+        return -1;
+    }
+
     // 地址重用
     if (-1 == setsockopt(lsn_fd,
                          SOL_SOCKET,
