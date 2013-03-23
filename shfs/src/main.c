@@ -170,11 +170,6 @@ FINAL:
     return real_len;
 }
 
-// 服务根目录
-static str_t path_root = {
-    NULL, 0,
-};
-
 // 默认访问文件
 #define INDEX_FILE_STRING       "index.html"
 static str_t const INDEX_FILE = {
@@ -190,6 +185,9 @@ void add_node(list_t **pp_list, list_t *p_node)
 {
     list_t *p_tmp = NULL;
 
+    ASSERT(NULL != pp_list);
+    ASSERT(NULL != p_node);
+
     p_tmp = *pp_list;
     *p_node = (list_t)p_tmp;
     *pp_list = p_node;
@@ -201,6 +199,9 @@ static inline
 void rm_node(list_t **pp_list, list_t *p_node)
 {
     list_t **pp_curr = NULL;
+
+    ASSERT(NULL != pp_list);
+    ASSERT(NULL != p_node);
 
     pp_curr = pp_list;
     while (*pp_curr) {
@@ -217,21 +218,13 @@ void rm_node(list_t **pp_list, list_t *p_node)
     return;
 }
 
-static list_t *p_free_clients = NULL; // 空闲客户端
-static list_t *p_clients = NULL; // 客户端列表
-
 #ifndef NDEBUG
 void test(void)
 {
     list_t *p_iter = NULL;
     static list_t *p_list_head = NULL;
-    list_t list[4];
+    list_t list[4] = {0};
 
-    /*p_list_head = &list[0];
-    list[0] = (list_t)&list[1];
-    list[1] = (list_t)&list[2];
-    list[2] = (list_t)&list[3];
-    list[3] = (list_t)NULL;*/
     for (int i = 0; i < 4; ++i) {
         add_node(&p_list_head, &list[i]);
     }
@@ -481,8 +474,18 @@ typedef enum {
             "</body>\r\n"
 #define HTTP404CONTENT_LEN      (sizeof(HTTP404CONTENT) - 1)
 
+typedef struct {
+    int m_lsn_fd; // 监听套接字
+    str_t m_path_root; // 根路径
+    client_t *mp_client_cache; // 客户端缓存
+    list_t *mp_free_clients; // 客户端空闲链
+    list_t *mp_inuse_clients; // 客户端链
+} context_t;
 
-static int handle_http_request(client_t *p_clt, http_request_t *p_request)
+
+static int handle_http_request(context_t *p_context,
+                               client_t *p_clt,
+                               http_request_t *p_request)
 {
     int rslt = 0;
     str_t filename = {
@@ -510,7 +513,7 @@ static int handle_http_request(client_t *p_clt, http_request_t *p_request)
     p_request->m_filepath.mp_data = p_request->m_path_buf; // 防止未初始化
     p_request->m_filepath.m_len = 0; // 防止未初始化
     p_request->mpc_requ_method = &GET_METHOD;
-    STR_CPY(p_request->m_filepath, 0, path_root);
+    STR_CPY(p_request->m_filepath, 0, p_context->m_path_root);
     if ('/' == p_request->m_filepath.mp_data[p_request->m_filepath.m_len - 1])
     {
         p_request->m_filepath.mp_data[p_request->m_filepath.m_len - 1] = '\0';
@@ -622,355 +625,7 @@ static void ts_perror(char const *pc_msg, int error_no)
     return;
 }
 
-int fake_main(int argc, char *argv[])
-{
-    int rslt = 0;
-    int lsn_fd = 0;
-    int reuseaddr = REUSEADDR;
-    int keepalive = 1;
-    struct sockaddr_in srv_addr = {
-        .sin_family = AF_INET,
-        .sin_port = htons(LSN_PORT),
-        .sin_addr.s_addr = htonl(INADDR_ANY),
-        .sin_zero = {0},
-    };
-    struct rlimit rlmt = {0};
-    struct timeval io_wait_tv = {
-        0, 0,
-    };
-    int sockets_max = 0;
-    fd_set fds_r = {{0}};
-    fd_set fds_w = {{0}};
-
-    client_t *p_client_cache = NULL;
-
-    int loop_err = 0;
-
-#ifndef NDEBUG
-    test();
-#endif // NDEBUG
-
-    if (1 == argc) {
-        fprintf(stderr, "usage: shfs filename\n");
-
-        goto FINAL;
-    } else {
-        path_root.mp_data = argv[1];
-        path_root.m_len = strlen(argv[1]);
-    }
-
-    // 获得能打开的最大描述符数目
-    if (-1 == getrlimit(RLIMIT_NOFILE, &rlmt)) {
-        goto GETRLIMIT_ERR;
-    }
-    sockets_max = rlmt.rlim_cur;
-    fprintf(stdout, "[INFO] max sockets: %d\n", sockets_max);
-
-    // 客户端结构缓存
-    p_client_cache = calloc(sockets_max, sizeof(client_t));
-    if (NULL == p_client_cache) {
-        goto CALLOC_ERR;
-    }
-
-    // 建立客户端空闲链
-    for (int i = 0; i < sockets_max; ++i) {
-        add_node(&p_free_clients, &p_client_cache[i].m_node);
-    }
-
-    // 创建监听套接字
-    lsn_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (-1 == lsn_fd) {
-        goto SOCKET_ERR;
-    }
-
-    // 非阻塞io
-    if (-1 == fcntl(lsn_fd,
-                    F_SETFL,
-                    fcntl(lsn_fd, F_GETFL) | O_NONBLOCK))
-    {
-        fprintf(stderr, "[ERROR] fcntl lsn_fd failed.\n");
-
-        goto SOCKET_ERR;
-    }
-
-    fprintf(stdout, "[INFO] listen fd: %d\n", lsn_fd);
-
-    // 地址重用
-    if (-1 == setsockopt(lsn_fd,
-                         SOL_SOCKET,
-                         SO_REUSEADDR,
-                         &reuseaddr,
-                         sizeof(reuseaddr)))
-    {
-        goto SETSOCKOPT_ERR;
-    }
-
-    // 连接保持
-    if (-1 == setsockopt(lsn_fd,
-                         SOL_SOCKET,
-                         SO_KEEPALIVE,
-                         &keepalive,
-                         sizeof(reuseaddr)))
-    {
-        goto SETSOCKOPT_ERR;
-    }
-
-    // 绑定ip端口
-    // 绑定ip端口
-    if (-1 == bind(lsn_fd,
-                   (struct sockaddr *)&srv_addr,
-                   sizeof(srv_addr)))
-    {
-        fprintf(stderr, "[ERROR] bind server port %d failed!\n", LSN_PORT);
-
-        goto BIND_ERR;
-    }
-
-    // 监听
-    if (-1 == listen(lsn_fd, SOMAXCONN)) {
-        goto LISTEN_ERR;
-    }
-    fprintf(stdout,
-            "[INFO] listening on %d, max backlog: %d\n",
-            LSN_PORT,
-            SOMAXCONN);
-
-    // 事件循环
-    while (TRUE) {
-        int fd_max = lsn_fd;
-        int nevents = 0;
-
-        // 重置描述符集
-        FD_ZERO(&fds_r);
-        FD_ZERO(&fds_w);
-        FD_SET(lsn_fd, &fds_r);
-        for (list_t *p_iter = p_clients;
-             NULL != p_iter;
-             p_iter = (list_t *)*p_iter)
-        {
-            struct stat tmp_stat = {0};
-            client_t *p_clt = CONTAINER_OF(p_iter, client_t, m_node);
-
-            if (0 == fstat(p_clt->m_cmnct_fd, &tmp_stat)) {
-                if (p_clt->m_cmnct_fd > fd_max) {
-                    fd_max = p_clt->m_cmnct_fd;
-                }
-                if (p_clt->m_select_type & SELECT_MR) {
-                    FD_SET(p_clt->m_cmnct_fd, &fds_r);
-                }
-                if (p_clt->m_select_type & SELECT_MW) {
-                    FD_SET(p_clt->m_cmnct_fd, &fds_w);
-                }
-            } else {
-                fprintf(stderr, "[BUG] bad fd: %d\n", p_clt->m_cmnct_fd);
-            }
-        }
-
-        // 重置定时器
-        io_wait_tv.tv_sec = 0;
-        io_wait_tv.tv_usec = 20 * 1000; // 20毫秒定时器
-
-        nevents = select(fd_max + 1, &fds_r, &fds_w, NULL, &io_wait_tv);
-
-        if (-1 == nevents) {
-            loop_err = TRUE;
-            fprintf(stderr, "[ERROR] select failed: %s.\n", strerror(errno));
-
-            break;
-        }
-
-        if (0 == nevents) { // time out
-            continue;
-        }
-
-        for (int fd = 0; fd < fd_max + 1; ++fd) {
-            if (!FD_ISSET(fd, &fds_r)) {
-                continue;
-            }
-
-            if (fd == lsn_fd) { // connection input
-                int cmnct_fd = 0;
-                client_t *p_clt = NULL;
-
-                if (NULL == p_free_clients) { // 无法再接受新连接
-                    continue;
-                }
-                
-                cmnct_fd = handle_accept(lsn_fd, p_clt);
-                if (-1 == cmnct_fd) {
-                    continue;
-                }
-
-                // 非阻塞io
-                if (-1 == fcntl(cmnct_fd,
-                                F_SETFL,
-                                fcntl(cmnct_fd, F_GETFL) | O_NONBLOCK))
-                {
-                    loop_err = TRUE;
-                    fprintf(stderr, "[ERROR] fcntl failed.\n");
-
-                    break;
-                }
-
-                // 分配空闲结点
-                p_clt = CONTAINER_OF(p_free_clients, client_t, m_node);
-                rm_node(&p_free_clients, p_free_clients);
-
-                // 加入到客户端列表
-                p_clt->m_cmnct_fd = cmnct_fd;
-
-                // 第一次使用分配缓冲
-                if (is_buf_empty(&p_clt->m_recv_buf)) {
-                    if (-1 == create_buf(&p_clt->m_recv_buf, MIN_BUF_SIZE)) {
-                        loop_err = TRUE;
-                        fprintf(stderr, "[ERROR] create recv buf failed!\n");
-
-                        break;
-                    }
-                }
-                if (is_buf_empty(&p_clt->m_send_buf)) {
-                    if (-1 == create_buf(&p_clt->m_send_buf, MIN_BUF_SIZE)) {
-                        loop_err = TRUE;
-                        fprintf(stderr, "[ERROR] create send buf failed!\n");
-
-                        break;
-                    }
-                }
-                p_clt->m_select_type |= SELECT_MR; // 监视读事件
-                add_node(&p_clients, &p_clt->m_node);
-            } else { // data input
-                http_request_t hr = {
-                    NULL,
-                };
-                int_t recved_size = 0;
-                int_t recv_errno = 0;
-                client_t *p_clt = NULL;
-                buf_t *p_recv_buf = NULL;
-                buf_t *p_send_buf = NULL;
-
-                // 查询client
-                for (list_t *p_iter = p_clients;
-                     NULL != p_iter;
-                     p_iter = (list_t *)*p_iter)
-                {
-                    p_clt = CONTAINER_OF(p_iter, client_t, m_node);
-
-                    if (fd == p_clt->m_cmnct_fd) {
-                        p_recv_buf = &p_clt->m_recv_buf;
-                        p_send_buf = &p_clt->m_send_buf;
-
-                        break;
-                    }
-                }
-
-                // ***** recv *****
-                while (TRUE) {
-                    ASSERT(NULL != p_recv_buf);
-                    if (is_buf_full(p_recv_buf)) {
-                        if (-1 == doublesize_buf(p_recv_buf)) {
-                            loop_err = TRUE;
-
-                            break;
-                        }
-                    }
-
-                    ASSERT(!is_buf_full(p_recv_buf));
-                    recved_size = recv(fd,
-                                       &p_recv_buf->mp_data[
-                                           p_recv_buf->m_content_len],
-                                       p_recv_buf->m_size
-                                           - p_recv_buf->m_content_len - 1,
-                                       0);
-                    recv_errno = errno;
-                    if (recved_size > 0) { // 还有数据要收
-                        p_recv_buf->m_content_len += recved_size;
-                    } else if ((-1 == recved_size) && (EAGAIN == recv_errno)) {
-                        (void)handle_http_request(p_clt, &hr);
-                        handle_http_response(p_clt, &hr);
-
-                        // 浏览器可能重用连接而使用上次的缓存数据
-                        clean_buf(&p_clt->m_recv_buf);
-                        clean_buf(&p_clt->m_send_buf);
-
-                        break;
-                    } else {
-                        // 连接断开或发生错误，清理资源
-                        clean_buf(&p_clt->m_recv_buf);
-                        clean_buf(&p_clt->m_send_buf);
-                        rm_node(&p_clients, &p_clt->m_node);
-                        add_node(&p_free_clients, &p_clt->m_node);
-
-                        (void)shutdown(p_clt->m_cmnct_fd, SHUT_RDWR);
-                        (void)close(p_clt->m_cmnct_fd);
-
-                        break;
-                    }
-                } // end of receving data
-
-                if (loop_err) {
-                    break;
-                }
-            } // end of data input
-        } // end of fd set ergodic
-
-        if (loop_err) {
-            break;
-        }
-    }
-
-    if (loop_err) {
-        goto LOOP_ERR;
-    }
-
-    do {
-        break;
-
-LOOP_ERR:
-        for (list_t *p_iter = p_clients;
-             NULL != p_iter;
-             p_iter = (list_t *)*p_iter)
-        {
-            client_t *p_clt = CONTAINER_OF(p_iter, client_t, m_node);
-
-            destroy_buf(&p_clt->m_recv_buf);
-            destroy_buf(&p_clt->m_send_buf);
-            close(p_clt->m_cmnct_fd);
-        }
-        FD_ZERO(&fds_r);
-
-LISTEN_ERR:
-
-BIND_ERR:
-
-SETSOCKOPT_ERR:
-        close(lsn_fd);
-
-SOCKET_ERR:
-        free(p_client_cache);
-
-CALLOC_ERR:
-
-GETRLIMIT_ERR:
-        rslt = -1;
-
-        break;
-    } while (0);
-
-FINAL:
-    fprintf(stderr, "exit: %d\n", rslt);
-
-    return rslt;
-}
-
-typedef struct {
-    int m_lsn_fd; // 监听套接字
-    char const *mpc_root_path; // 根路径
-    client_t *mp_client_cache; // 客户端缓存
-    list_t *mp_free_clients; // 客户端空闲链
-    list_t *mp_inuse_clients; // 客户端链
-} context_t;
-
-static void handle_conn_input(context_t *p_context)
+static void handle_connection(context_t *p_context)
 {
     int cmnct_fd = 0;
     client_t *p_clt = NULL;
@@ -1006,6 +661,8 @@ static void handle_conn_input(context_t *p_context)
 
             return;
         }
+    } else {
+        clean_buf(&p_clt->m_recv_buf);
     }
     if (is_buf_empty(&p_clt->m_send_buf)) {
         if (-1 == create_buf(&p_clt->m_send_buf, MIN_BUF_SIZE)) {
@@ -1013,19 +670,109 @@ static void handle_conn_input(context_t *p_context)
 
             return;
         }
+    } else {
+        clean_buf(&p_clt->m_send_buf);
     }
 
     // 分配空闲结点并加入到客户端链表
     rm_node(&p_context->mp_free_clients,
             p_context->mp_free_clients);
-    add_node(&p_clients, &p_clt->m_node);
+    add_node(&p_context->mp_inuse_clients,
+             &p_clt->m_node);
 
     return;
 }
 
-static void handle_data_input(client_t *p_clt)
+static void handle_disconnection(context_t *p_context,
+                                 client_t *p_clt,
+                                 int close_wait)
 {
+    ASSERT(NULL != p_context);
+
+    // 断开连接
+    if (close_wait) { // 被动断开
+        ASSERT(0 == shutdown(p_clt->m_cmnct_fd, SHUT_RDWR));
+    } else { // 主动断开
+        ASSERT(0 == shutdown(p_clt->m_cmnct_fd, SHUT_WR));
+        while (TRUE) {
+            char buf_tmp[256] = {0x00};
+                
+            if (recv(p_clt->m_cmnct_fd,
+                     buf_tmp,
+                     ARRAY_COUNT(buf_tmp),
+                     0) > 0)
+            {
+                continue;
+            } else {
+                ASSERT(0 == shutdown(p_clt->m_cmnct_fd, SHUT_RD));
+
+                break;
+            }
+        }
+    }
+
+    // 释放资源
+    ASSERT(0 == close(p_clt->m_cmnct_fd));
+    rm_node(&p_context->mp_inuse_clients, &p_clt->m_node);
+    add_node(&p_context->mp_free_clients, &p_clt->m_node);
+    p_clt->m_select_type = 0;
+    (void)memset(&p_clt->m_clt_addr, 0, sizeof(struct sockaddr_in));
+    destroy_buf(&p_clt->m_recv_buf);
+    destroy_buf(&p_clt->m_send_buf);
+    p_clt->m_sent_len = 0;
+
+    return;
+}
+
+static int handle_data_input(context_t *p_context, client_t *p_clt)
+{
+    int rslt = 0;
+
     ASSERT(NULL != p_clt);
+
+    while (TRUE) {
+        int recved_size = 0;
+        buf_t *p_recv_buf = &p_clt->m_recv_buf;
+        int recv_errno = 0;
+
+        if (is_buf_full(&p_clt->m_recv_buf)) { // 缓冲满
+            if (-1 == doublesize_buf(&p_clt->m_recv_buf)) {
+                rslt = -1;
+
+                break;
+            }
+        }
+
+        recved_size = recv(p_clt->m_cmnct_fd,
+                           &p_recv_buf->mp_data[p_recv_buf->m_content_len],
+                           p_recv_buf->m_size - p_recv_buf->m_content_len - 1,
+                           0);
+        recv_errno = errno;
+        if (recved_size > 0) {
+            p_recv_buf->m_content_len += recved_size;
+
+            continue;
+        } else if ((-1 == recved_size) && (EAGAIN == recv_errno)) {
+            http_request_t hr = {NULL};
+
+            ASSERT(0x00 == p_recv_buf->mp_data[p_recv_buf->m_content_len]);
+
+            (void)handle_http_request(p_context, p_clt, &hr);
+            handle_http_response(p_clt, &hr);
+
+            // 浏览器可能重用连接而使用上次的缓存数据
+            clean_buf(&p_clt->m_recv_buf);
+            clean_buf(&p_clt->m_send_buf);
+
+            break;
+        } else {
+            handle_disconnection(p_context, p_clt, TRUE); // 被动断开
+
+            break;
+        }
+    }
+
+    return rslt;
 }
 
 static void handle_read_events(context_t *p_context,
@@ -1038,12 +785,12 @@ static void handle_read_events(context_t *p_context,
         }
 
         if (fd == p_context->m_lsn_fd) { // 新连接
-            handle_conn_input(p_context);
+            handle_connection(p_context);
         } else {
             client_t *p_clt = NULL;
 
             // 查询client
-            for (list_t *p_iter = p_clients;
+            for (list_t *p_iter = p_context->mp_inuse_clients;
                  NULL != p_iter;
                  p_iter = (list_t *)*p_iter)
             {
@@ -1054,7 +801,12 @@ static void handle_read_events(context_t *p_context,
                 }
             }
 
-            handle_data_input(p_clt);
+            // 处理接收数据
+            ASSERT(NULL != p_clt);
+            if (-1 == handle_data_input(p_context, p_clt)) {
+                // 主动断开连接
+                handle_disconnection(p_context, p_clt, FALSE);
+            }
         }
     }
 
@@ -1127,7 +879,7 @@ static int event_loop(context_t *p_context)
         }
 
         // 重置定时器
-        io_wait_tv.tv_sec = 0;
+        io_wait_tv.tv_sec = 7;
         io_wait_tv.tv_usec = 20 * 1000; // 20毫秒定时器
         
         // 监视事件
@@ -1146,7 +898,7 @@ static int event_loop(context_t *p_context)
     return rslt;
 }
 
-static int init_lsn_fd(context_t *p_context)
+static int init_lsn_fd(int lsn_fd)
 {
     int reuseaddr = REUSEADDR;
     int keepalive = KEEPALIVE;
@@ -1158,25 +910,27 @@ static int init_lsn_fd(context_t *p_context)
     };
 
     // 非阻塞io
-    if (-1 == fcntl(p_context->m_lsn_fd,
+    if (-1 == fcntl(lsn_fd,
                     F_SETFL,
-                    fcntl(p_context->m_lsn_fd, F_GETFL) | O_NONBLOCK))
+                    fcntl(lsn_fd, F_GETFL) | O_NONBLOCK))
     {
         return -1;
     }
 
     // 地址重用
-    if (-1 == setsockopt(p_context->m_lsn_fd,
+    if (-1 == setsockopt(lsn_fd,
                          SOL_SOCKET,
                          SO_REUSEADDR,
                          &reuseaddr,
                          sizeof(reuseaddr)))
     {
+        ts_perror("reuse addr failed", errno);
+
         return -1;
     }
 
     // 连接保持
-    if (-1 == setsockopt(p_context->m_lsn_fd,
+    if (-1 == setsockopt(lsn_fd,
                          SOL_SOCKET,
                          SO_KEEPALIVE,
                          &keepalive,
@@ -1186,7 +940,7 @@ static int init_lsn_fd(context_t *p_context)
     }
 
     // 绑定ip端口
-    if (-1 == bind(p_context->m_lsn_fd,
+    if (-1 == bind(lsn_fd,
                    (struct sockaddr *)&srv_addr,
                    sizeof(srv_addr)))
     {
@@ -1194,7 +948,7 @@ static int init_lsn_fd(context_t *p_context)
     }
 
     // 监听
-    if (-1 == listen(p_context->m_lsn_fd, SOMAXCONN)) {
+    if (-1 == listen(lsn_fd, SOMAXCONN)) {
         return -1;
     }
 
@@ -1203,13 +957,14 @@ static int init_lsn_fd(context_t *p_context)
 
 
 static void destroy_context(context_t *p_context);
-static int build_context(context_t *p_context, char const *pc_root_path);
+static int build_context(context_t *p_context, str_t const PATH_ROOT);
 
-int build_context(context_t *p_context, char const *pc_root_path)
+int build_context(context_t *p_context, str_t const PATH_ROOT)
 {
     int lsn_fd = 0;
     struct rlimit rlmt = {0};
     client_t *p_client_cache = NULL;
+    list_t *p_free_clients = NULL;
 
     // 创建监听套接字
     lsn_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -1218,7 +973,7 @@ int build_context(context_t *p_context, char const *pc_root_path)
     }
 
     // 初始化监听套接字
-    if (-1 == init_lsn_fd(p_context)) {
+    if (-1 == init_lsn_fd(lsn_fd)) {
         ASSERT(0 == close(lsn_fd));
 
         return -1;
@@ -1234,7 +989,7 @@ int build_context(context_t *p_context, char const *pc_root_path)
     // 申请客户端结构缓存
     p_client_cache = calloc(rlmt.rlim_cur, sizeof(client_t));
 
-    if (NULL == p_context->mp_client_cache) {
+    if (NULL == p_client_cache) {
         ASSERT(0 == close(lsn_fd));
 
         return -1;
@@ -1242,15 +997,15 @@ int build_context(context_t *p_context, char const *pc_root_path)
 
     // 建立客户端空闲链
     for (int i = 0; i < rlmt.rlim_cur; ++i) {
-        add_node(&p_context->mp_free_clients,
-                 &p_context->mp_client_cache[i].m_node);
+        add_node(&p_free_clients,
+                 &p_client_cache[i].m_node);
     }
 
     // 填充上下文
     p_context->m_lsn_fd = lsn_fd;
-    p_context->mpc_root_path = pc_root_path;
+    p_context->m_path_root = PATH_ROOT;
     p_context->mp_client_cache = p_client_cache; // 客户端缓存
-    p_context->mp_free_clients = NULL; // 客户端空闲链
+    p_context->mp_free_clients = p_free_clients; // 客户端空闲链
     p_context->mp_inuse_clients = NULL; // 客户端链
 
     return 0;
@@ -1267,12 +1022,12 @@ void destroy_context(context_t *p_context)
     return;
 }
 
-static int shfs_main(char const *pc_root_path)
+static int shfs_main(str_t const PATH_ROOT)
 {
     context_t context = {0};
 
     // 创建运行上下文
-    if (-1 == build_context(&context, pc_root_path)) {
+    if (-1 == build_context(&context, PATH_ROOT)) {
         return -1;
     }
 
@@ -1291,11 +1046,15 @@ static int shfs_main(char const *pc_root_path)
 
 int main(int argc, char *argv[])
 {
+    str_t path_root = {NULL};
+
     if (1 == argc) {
         fprintf(stderr, "usage: shfs filename\n");
 
         return 0;
     }
+    path_root.mp_data = argv[1];
+    path_root.m_len = strlen(argv[1]);
 
-    return shfs_main(argv[1]);
+    return shfs_main(path_root);
 }
