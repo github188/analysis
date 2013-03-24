@@ -354,6 +354,13 @@ void destroy_buf(buf_t *const THIS)
     THIS->m_content_len = 0;
 }
 
+// 文件
+typedef struct {
+    int m_fd;
+    off_t m_file_size;
+    off_t m_read_size; // 已读取的大小
+} file_t;
+
 // ***** 处理连接请求 *****
 // 监视的事件类型
 typedef enum {
@@ -364,6 +371,7 @@ typedef enum {
 // connection列表
 typedef struct {
     int m_cmnct_fd;
+    file_t m_file; // 客户访问的文件
     list_t m_node;
     int m_select_type; // 监视类型
     struct sockaddr_in m_clt_addr; // 客户端地址
@@ -601,13 +609,6 @@ static int handle_http_response(client_t *p_clt,
         STR_CPY(p_requ->m_filepath, p_requ->m_filepath.m_len, INDEX_FILE);
     }
 
-    if (-1 == stat(p_requ->m_filepath.mp_data, &fp_stat)) {
-        // 404
-        http_response_404(p_clt);
-
-        return 0;
-    }
-
     if (NULL == realpath(p_requ->m_filepath.mp_data, real_path)) {
         // 404
         http_response_404(p_clt);
@@ -616,6 +617,13 @@ static int handle_http_response(client_t *p_clt,
     }
     real_path_len = strlen(real_path);
     fprintf(stderr, "filename: %s\n", real_path);
+
+    if (-1 == stat(p_requ->m_filepath.mp_data, &fp_stat)) {
+        // 404
+        http_response_404(p_clt);
+
+        return 0;
+    }
 
     rdfd = open(real_path, O_RDONLY);
     if (-1 == rdfd) {
@@ -813,6 +821,12 @@ static int handle_data_input(context_t *p_context, client_t *p_clt)
         int recv_errno = 0;
 
         if (is_buf_full(&p_clt->m_recv_buf)) { // 缓冲满
+            if (p_clt->m_recv_buf.m_size > 4096 * 255) {
+                // 恶意请求
+                rslt = -1;
+
+                break;
+            }
             if (-1 == doublesize_buf(&p_clt->m_recv_buf)) {
                 rslt = -1;
 
