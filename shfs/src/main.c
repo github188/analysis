@@ -498,15 +498,24 @@ static int handle_http_request(context_t *p_context,
 
     // 初始化文件名
     filename.mp_data = p_recv_buf->mp_data;
-    while ('/' != *filename.mp_data) {
+    for (int i = 0; 0x00 != p_recv_buf->mp_data[i]; ++i) {
+        if ('/' == filename.mp_data[0]) {
+            break;
+        }
         ++filename.mp_data;
     }
+    if (filename.mp_data == p_recv_buf->mp_data) { // 没找到路径
+        return -1;
+    }
     ASSERT(0 == filename.m_len);
-    for (int i = 0;
-         0x20 != filename.mp_data[i];
-         ++i)
-    {
+    for (int i = 0; 0x00 != filename.mp_data[i]; ++i) {
+        if (0x20 == filename.mp_data[i]) {
+            break;
+        }
         ++filename.m_len;
+    }
+    if (filename.m_len > 128) { // 过长的文件名
+        return -1;
     }
 
     // 初始化请求路径
@@ -521,9 +530,43 @@ static int handle_http_request(context_t *p_context,
     }
     STR_CPY(p_request->m_filepath, p_request->m_filepath.m_len, filename);
 
+    clean_buf(&p_clt->m_recv_buf); // 清空接收缓冲
+
     return rslt;
 }
 
+static void http_response_404(client_t *p_clt)
+{
+    int ntow = 0;
+    str_t len = {NULL};
+    char content_len[32] = {0x00};
+    buf_t *p_send_buf = NULL;
+
+    ASSERT(NULL != p_clt);
+    p_send_buf = &p_clt->m_send_buf;
+
+    len.mp_data = content_len;
+    len.m_len = 0;
+    ASSERT(0 < offset_to_str(HTTP404CONTENT_LEN,
+                             len,
+                             ARRAY_COUNT(content_len)));
+    ntow = snprintf(p_send_buf->mp_data,
+                    p_send_buf->m_size,
+                    HTTP404
+                    SERVER_NAME
+                    "Content-Length: %s\r\n"
+                    "Cache-Control: no-cache\r\n"
+                    "Connection: keep-alive\r\n"
+                    "Content-Type: text/html\r\n\r\n"
+                    HTTP404CONTENT,
+                    len.mp_data);
+    p_send_buf->m_content_len = MIN(ntow, p_send_buf->m_size);
+
+    ASSERT(0 == p_clt->m_sent_len);
+    if (p_send_buf->m_content_len > 0) {
+        p_clt->m_select_type |= SELECT_MW; // 写事件
+    }
+}
 
 static int handle_http_response(client_t *p_clt,
                                 http_request_t *p_requ)
@@ -539,7 +582,9 @@ static int handle_http_response(client_t *p_clt,
 
     if (-1 == stat(p_requ->m_filepath.mp_data, &fp_stat)) {
         // 404
-        goto FILE_NOT_FOUND_ERR;
+        http_response_404(p_clt);
+
+        return 0;
     }
 
     if (S_ISDIR(fp_stat.st_mode)) {
@@ -553,62 +598,29 @@ static int handle_http_response(client_t *p_clt,
     rdfd = open(p_requ->m_filepath.mp_data, O_RDONLY);
     if (-1 == rdfd) {
         // 404
-        goto FILE_NOT_FOUND_ERR;
+        http_response_404(p_clt);
+
+        return 0;
     }
 
-    do {
-        ntow = snprintf(p_send_buf->mp_data,
-                        p_send_buf->m_size,
-                        HTTP200
-                        SERVER_NAME
-                        "Content-Length: 13\r\n"
-                        "Cache-Control: no-cache\r\n"
-                        "Connection: keep-alive\r\n"
-                        "Content-Type: text/html\r\n\r\n"
-                        "Hello, World!");
-        p_send_buf->m_content_len = MIN(ntow, p_send_buf->m_size);
-        send(p_clt->m_cmnct_fd,
-             p_send_buf->mp_data,
-             p_send_buf->m_content_len,
-             0);
+    ntow = snprintf(p_send_buf->mp_data,
+                    p_send_buf->m_size,
+                    HTTP200
+                    SERVER_NAME
+                    "Content-Length: 13\r\n"
+                    "Cache-Control: no-cache\r\n"
+                    "Connection: keep-alive\r\n"
+                    "Content-Type: text/html\r\n\r\n"
+                    "Hello, World!");
+    p_send_buf->m_content_len = MIN(ntow, p_send_buf->m_size);
 
-        ASSERT(rdfd > 0);
-        close(rdfd);
+    ASSERT(0 == p_clt->m_sent_len);
+    if (p_send_buf->m_content_len > 0) {
+        p_clt->m_select_type |= SELECT_MW; // 写事件
+    }
 
-        break;
-
-FILE_NOT_FOUND_ERR:
-        {
-            int ntow = 0;
-            str_t len = {NULL};
-            char content_len[32] = {0x00};
-
-            len.mp_data = content_len;
-            len.m_len = 0;
-            ASSERT(0 < offset_to_str(HTTP404CONTENT_LEN,
-                                     len,
-                                     ARRAY_COUNT(content_len)));
-            ntow = snprintf(p_send_buf->mp_data,
-                            p_send_buf->m_size,
-                            HTTP404
-                            SERVER_NAME
-                            "Content-Length: %s\r\n"
-                            "Cache-Control: no-cache\r\n"
-                            "Connection: keep-alive\r\n"
-                            "Content-Type: text/html\r\n\r\n"
-                            HTTP404CONTENT,
-                            len.mp_data);
-                p_send_buf->m_content_len = MIN(ntow, p_send_buf->m_size);
-                send(p_clt->m_cmnct_fd,
-                     p_send_buf->mp_data,
-                     p_send_buf->m_content_len,
-                     0);
-            
-            break;
-        }
-    } while (0);
-
-    clean_buf(p_send_buf);
+    ASSERT(rdfd > 0);
+    close(rdfd);
 
     return rslt;
 }
@@ -757,12 +769,12 @@ static int handle_data_input(context_t *p_context, client_t *p_clt)
 
             ASSERT(0x00 == p_recv_buf->mp_data[p_recv_buf->m_content_len]);
 
-            (void)handle_http_request(p_context, p_clt, &hr);
-            handle_http_response(p_clt, &hr);
+            if (-1 == handle_http_request(p_context, p_clt, &hr)) {
+                handle_disconnection(p_context, p_clt, FALSE); // 主动断开
 
-            // 浏览器可能重用连接而使用上次的缓存数据
-            clean_buf(&p_clt->m_recv_buf);
-            clean_buf(&p_clt->m_send_buf);
+                break;
+            }
+            handle_http_response(p_clt, &hr);
 
             break;
         } else {
@@ -818,8 +830,55 @@ static void handle_write_events(context_t *p_context,
                                 int fd_max)
 {
     for (int fd = 0; fd < fd_max + 1; ++fd) {
+        client_t *p_clt = NULL;
+        int sent_size = 0;
+
         if (!FD_ISSET(fd, pc_fds_w)) {
             continue;
+        }
+
+        // 查询client
+        for (list_t *p_iter = p_context->mp_inuse_clients;
+             NULL != p_iter;
+             p_iter = (list_t *)*p_iter)
+        {
+            p_clt = CONTAINER_OF(p_iter, client_t, m_node);
+
+            if (fd == p_clt->m_cmnct_fd) {
+                break;
+            }
+        }
+        p_clt->m_select_type &= ~SELECT_MW; // 清除写事件标识
+
+        ASSERT(0 == sent_size);
+        while (TRUE) {
+            int send_errno = 0;
+            int left_size = p_clt->m_send_buf.m_content_len - sent_size;
+
+            if (0 == left_size) { // 发送完毕
+                p_clt->m_sent_len = 0;
+                clean_buf(&p_clt->m_send_buf);
+
+                break;
+            }
+            sent_size = send(p_clt->m_cmnct_fd,
+                             &p_clt->m_send_buf.mp_data[sent_size],
+                             MIN(4096, left_size),
+                             0);
+            send_errno = errno;
+            if (sent_size > 0) {
+                p_clt->m_sent_len += sent_size;
+
+                continue;
+            } else if ((-1 == sent_size) && (EAGAIN == send_errno)) {
+                p_clt->m_select_type |= SELECT_MW; // 重设写事件标识，下次再发
+
+                break;
+            } else {
+                handle_disconnection(p_context, p_clt, FALSE); // 主动断开
+
+                break;
+            }
         }
     }
 
@@ -871,6 +930,11 @@ static int event_loop(context_t *p_context)
                     FD_SET(p_clt->m_cmnct_fd, &fds_r);
                 }
                 if (p_clt->m_select_type & SELECT_MW) {
+                    #define CONDITION       \
+                        (p_clt->m_sent_len < p_clt->m_send_buf.m_content_len)
+                    ASSERT(CONDITION);
+                    #undef CONDITION
+
                     FD_SET(p_clt->m_cmnct_fd, &fds_w);
                 }
             } else {
