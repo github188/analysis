@@ -576,6 +576,12 @@ static int handle_http_response(client_t *p_clt,
     int ntow = 0;
     struct stat fp_stat = {0};
     buf_t *p_send_buf = NULL;
+    char real_path[PATH_MAX] = {0x00};
+    int real_path_len = 0;
+    char *p_mimetype = NULL;
+    char *p_filetype = NULL;
+    str_t file_size = {NULL};
+    char content_len[32] = {0x00};
 
     ASSERT(NULL != p_clt);
     p_send_buf = &p_clt->m_send_buf;
@@ -594,14 +600,73 @@ static int handle_http_response(client_t *p_clt,
         }
         STR_CPY(p_requ->m_filepath, p_requ->m_filepath.m_len, INDEX_FILE);
     }
-    fprintf(stderr, "filename: %s\n", p_requ->m_filepath.mp_data);
-    rdfd = open(p_requ->m_filepath.mp_data, O_RDONLY);
+
+    if (-1 == stat(p_requ->m_filepath.mp_data, &fp_stat)) {
+        // 404
+        http_response_404(p_clt);
+
+        return 0;
+    }
+
+    if (NULL == realpath(p_requ->m_filepath.mp_data, real_path)) {
+        // 404
+        http_response_404(p_clt);
+
+        return 0;
+    }
+    real_path_len = strlen(real_path);
+    fprintf(stderr, "filename: %s\n", real_path);
+
+    rdfd = open(real_path, O_RDONLY);
     if (-1 == rdfd) {
         // 404
         http_response_404(p_clt);
 
         return 0;
     }
+    p_filetype = &real_path[real_path_len - 1];
+    while (real_path != p_filetype) {
+        if ('.' == p_filetype[0]) {
+            ++p_filetype;
+
+            break;
+        }
+        --p_filetype;
+    }
+
+    if (real_path == p_filetype) {
+        p_filetype = "unkown";
+    }
+    fprintf(stderr, "filetype: %s\n", p_filetype);
+
+    if (0 == strcmp(p_filetype, "html")) {
+        p_mimetype = "text/html";
+    } else if (0 == strcmp(p_filetype, "png")) {
+        p_mimetype = "image/png";
+    } else if (0 == strcmp(p_filetype, "jpg")) {
+        p_mimetype = "image/jpeg";
+    } else if (0 == strcmp(p_filetype, "jpeg")) {
+        p_mimetype = "image/jpeg";
+    } else if (0 == strcmp(p_filetype, "txt")) {
+        p_mimetype = "text/plain";
+    } else if (0 == strcmp(p_filetype, "flv")) {
+        p_mimetype = "video/flv";
+    } else if (0 == strcmp(p_filetype, "mp4")) {
+        p_mimetype = "video/mp4";
+    } else if (0 == strcmp(p_filetype, "avi")) {
+        p_mimetype = "video/avi";
+    } else if (0 == strcmp(p_filetype, "rmvb")) {
+        p_mimetype = "video/rmvb";
+    } else {
+        p_mimetype = "application/octet-stream";
+    }
+
+    file_size.mp_data = content_len;
+    file_size.m_len = 0;
+    ASSERT(0 < offset_to_str(fp_stat.st_size,
+                             file_size,
+                             ARRAY_COUNT(content_len)));
+    fprintf(stderr, "file_size: %s\n", file_size.mp_data);
 
     ntow = snprintf(p_send_buf->mp_data,
                     p_send_buf->m_size,
