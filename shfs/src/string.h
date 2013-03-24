@@ -16,48 +16,47 @@ typedef struct {
         }
 
 static inline
-void reverse_str(str_t target)
+void reverse_str(str_t *p_target)
 {
     int i = 0;
     int j = 0;
 
-    ASSERT(NULL != target.mp_data);
-    ASSERT(target.m_len > 0);
+    ASSERT(NULL != p_target->mp_data);
+    ASSERT(p_target->m_len > 0);
 
-    for (i = 0, j = target.m_len - 1; i < j; ++i, --j) {
-        char tmp = target.mp_data[i];
+    for (i = 0, j = p_target->m_len - 1; i < j; ++i, --j) {
+        char tmp = p_target->mp_data[i];
 
-        target.mp_data[i] = target.mp_data[j];
-        target.mp_data[j] = tmp;
+        p_target->mp_data[i] = p_target->mp_data[j];
+        p_target->mp_data[j] = tmp;
     }
 }
 
 static inline
-int offset_to_str(off_t value, str_t target, int n)
+int offset_to_str(off_t value, str_t *p_target, int n)
 {
     int real_len = 0;
     off_t value_tmp = value;
 
-    ASSERT(NULL != target.mp_data);
+    ASSERT(NULL != p_target->mp_data);
 
     if (value < 0) {
-        real_len = -1;
-
-        goto FINAL;
+        return -1;
     }
 
-    target.m_len = 0;
+    p_target->m_len = 0;
     ASSERT(0 == real_len);
-    while ((0 != value_tmp) && (target.m_len < n)) {
+    while ((0 != value_tmp) && (p_target->m_len < n)) {
         off_t next_value = value_tmp / 10;
 
-        target.mp_data[target.m_len++] = value_tmp - next_value * 10 + '0';
+        p_target->mp_data[p_target->m_len++]
+            = value_tmp - next_value * 10 + '0';
         value_tmp = next_value;
         ++real_len;
     }
-    reverse_str(target);
+    reverse_str(p_target);
+    p_target->m_len = MIN(n, real_len);
 
-FINAL:
     return real_len;
 }
 

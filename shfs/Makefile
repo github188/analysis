@@ -7,7 +7,7 @@ CPPFLAGS_DEBUG = -Wall -g -O0 -std=c99 -D _GNU_SOURCE -D _REENTRANT
 HEADERS = src/common.h src/string.h src/list.h
 SOURCES =  src/main.c
 
+debug: ${SOURCES} ${HEADERS}
+	$(CC) $(CFLAGS_DEBUG) src/main.c -o shfs -rdynamic
 release: ${SOURCES} $(HEADERS)
 	$(CC) $(CFLAGS_RELEASE) src/main.c -o shfs
-debug: ${SOURCES} ${HEADERS}
-	$(CC) $(CFLAGS_DEBUG) src/main.c -o shfs

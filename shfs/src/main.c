@@ -6,7 +6,44 @@
 #define REUSEADDR       TRUE
 #define KEEPALIVE       TRUE
 
+#define SPACE           0x20
+
 extern int errno;
+
+
+// 字符串哈希
+static int str_hash(str_t str)
+{
+    int key = 0;
+
+    ASSERT(NULL != str.mp_data);
+    ASSERT(str.m_len > 0);
+
+    for (int i = 0; 0x00 != str.mp_data[i]; ++i) {
+        if (i < str.m_len) {
+            key = (key << 5) + str.mp_data[i];
+        } else {
+            break;
+        }
+    }
+
+    return key;
+}
+
+// 路径
+typedef struct {
+    str_t m_path;
+    char m_buf[PATH_MAX];
+} path_t;
+
+static inline void init_path(path_t *const THIS)
+{
+    ASSERT(NULL != THIS);
+
+    THIS->m_path.mp_data = THIS->m_buf;
+    THIS->m_path.m_len = 0;
+}
+
 
 // 默认访问文件
 #define INDEX_FILE_STRING       "index.html"
@@ -15,30 +52,58 @@ static str_t const INDEX_FILE = {
     sizeof(INDEX_FILE_STRING) - 1,
 };
 
-// 文件
-typedef struct {
-    int m_fd;
-    off_t m_file_size;
-    off_t m_read_size; // 已读取的大小
-} file_t;
+// http请求方法
+typedef enum {
+    RM_HTTP_GET = 0x124F4,   // 由str_hash算出的哈希值，"GET"，以下类推
+    RM_HTTP_POST = 0x2946B4,
+    RM_HTTP_HEAD = 0x251C64,
+} requ_method_t;
 
-// ***** 处理连接请求 *****
+// http响应状态
+typedef enum {
+    RS_HTTP_000 = 0,  // 无效的响应状态，用于续传
+    RS_HTTP_200 = 200,
+    RS_HTTP_403 = 403,
+    RS_HTTP_404 = 404,
+} resp_status_t;
+
 // 监视的事件类型
 typedef enum {
     SELECT_MR = 1,
     SELECT_MW = 1 << 1,
 } select_type_t;
 
+
+// 文件
+typedef struct {
+    int m_fd;
+    off_t m_size;
+} file_t;
+
+// http请求
+typedef struct {
+    int m_requ_method;
+} http_requ_t;
+
+// http响应
+typedef struct {
+    int m_resp_status; // 响应状态
+    file_t m_file;
+    char const *mpc_mime; // mime类型
+    off_t m_sent_size; // 已发送大小
+} http_resp_t;
+
+
 // connection列表
 typedef struct {
     int m_cmnct_fd;
-    file_t m_file; // 客户访问的文件
-    list_t m_node;
     int m_select_type; // 监视类型
+    http_requ_t m_requ; // http请求
+    http_resp_t m_resp; // http响应
     struct sockaddr_in m_clt_addr; // 客户端地址
     buf_t m_recv_buf; // 接收缓冲
     buf_t m_send_buf; // 发送缓冲
-    int m_sent_len; // 已发送长度
+    list_t m_node;
 } client_t;
 
 static int handle_accept(int lsn_fd, client_t *p_clt)
@@ -73,32 +138,6 @@ static int handle_accept(int lsn_fd, client_t *p_clt)
 
     return rslt;
 }
-
-// ***** 处理http请求 *****
-// http请求方法
-static str_t const GET_METHOD = {
-    "GET",
-    sizeof("GET") - 1,
-};
-static str_t const POST_METHOD = {
-    "POST",
-    sizeof("POST") - 1,
-};
-
-// http请求
-typedef struct {
-    str_t const *mpc_requ_method;
-    str_t m_filepath;
-    char m_path_buf[PATH_MAX]; // 请求的文件路径
-} http_request_t;
-
-// http响应状态
-typedef enum {
-    RS_HTTP_200 = 200,
-    RS_HTTP_403 = 403,
-    RS_HTTP_404 = 404,
-} response_status_t;
-
 
 // html head
 #define HTML32DOCTYPE           "<!DOCTYPE html>\r\n"
@@ -151,150 +190,262 @@ typedef struct {
     list_t *mp_inuse_clients; // 客户端链
 } context_t;
 
-
-static int handle_http_request(context_t *p_context,
-                               client_t *p_clt,
-                               http_request_t *p_request)
-{
-    int rslt = 0;
-    str_t filename = {
-        NULL, 0,
-    };
-    buf_t *p_recv_buf = NULL;
-
-    ASSERT(NULL != p_clt);
-    p_recv_buf = &p_clt->m_recv_buf;
-
-    // 初始化文件名
-    filename.mp_data = p_recv_buf->mp_data;
-    for (int i = 0; 0x00 != p_recv_buf->mp_data[i]; ++i) {
-        if ('/' == filename.mp_data[0]) {
-            break;
-        }
-        ++filename.mp_data;
-    }
-    if (filename.mp_data == p_recv_buf->mp_data) { // 没找到路径
-        return -1;
-    }
-    ASSERT(0 == filename.m_len);
-    for (int i = 0; 0x00 != filename.mp_data[i]; ++i) {
-        if (0x20 == filename.mp_data[i]) {
-            break;
-        }
-        ++filename.m_len;
-    }
-    if (filename.m_len > 128) { // 过长的文件名
-        return -1;
-    }
-
-    // 初始化请求路径
-    p_request->m_filepath.mp_data = p_request->m_path_buf; // 防止未初始化
-    p_request->m_filepath.m_len = 0; // 防止未初始化
-    p_request->mpc_requ_method = &GET_METHOD;
-    STR_CPY(p_request->m_filepath, 0, p_context->m_path_root);
-    if ('/' == p_request->m_filepath.mp_data[p_request->m_filepath.m_len - 1])
-    {
-        p_request->m_filepath.mp_data[p_request->m_filepath.m_len - 1] = '\0';
-        --p_request->m_filepath.m_len;
-    }
-    STR_CPY(p_request->m_filepath, p_request->m_filepath.m_len, filename);
-
-    clean_buf(&p_clt->m_recv_buf); // 清空接收缓冲
-
-    return rslt;
-}
-
-static void http_response_404(client_t *p_clt)
+static int http_send(client_t *p_clt)
 {
     int ntow = 0;
-    str_t len = {NULL};
-    char content_len[32] = {0x00};
-    buf_t *p_send_buf = NULL;
+    char const *pc_status_line = NULL;
+    char len_buf[32] = {0x00};
+    str_t len = {len_buf, 0};
 
     ASSERT(NULL != p_clt);
-    p_send_buf = &p_clt->m_send_buf;
 
-    len.mp_data = content_len;
-    len.m_len = 0;
-    ASSERT(0 < offset_to_str(HTTP404CONTENT_LEN,
-                             len,
-                             ARRAY_COUNT(content_len)));
-    ntow = snprintf(p_send_buf->mp_data,
-                    p_send_buf->m_size,
-                    HTTP404
+    if (RS_HTTP_000 == p_clt->m_resp.m_resp_status) {
+        return 0;
+    }
+
+    ASSERT(offset_to_str(p_clt->m_resp.m_file.m_size,
+                         &len,
+                         ARRAY_COUNT(len_buf)) > 0);
+
+    switch (p_clt->m_resp.m_resp_status) {
+    case RS_HTTP_200:
+        {
+            pc_status_line = HTTP200;
+            break;
+        }
+    case RS_HTTP_403:
+        {
+            pc_status_line = HTTP403;
+            break;
+        }
+    case RS_HTTP_404:
+        {
+            pc_status_line = HTTP404;
+            break;
+        }
+    default:
+        {
+            ASSERT(0);
+
+            break;
+        }
+    }
+
+    // 清空发送缓冲
+    clean_buf(&p_clt->m_send_buf);
+
+    // http响应头
+    ntow = snprintf(p_clt->m_send_buf.mp_data,
+                    p_clt->m_send_buf.m_capacity,
+                    "%s"
                     SERVER_NAME
                     "Content-Length: %s\r\n"
                     "Cache-Control: no-cache\r\n"
                     "Connection: keep-alive\r\n"
-                    "Content-Type: text/html\r\n\r\n"
-                    HTTP404CONTENT,
+                    "Content-Type: text/html\r\n\r\n",
+                    pc_status_line,
                     len.mp_data);
-    p_send_buf->m_content_len = MIN(ntow, p_send_buf->m_size);
+    p_clt->m_send_buf.m_size = MIN(ntow, p_clt->m_send_buf.m_capacity);
 
-    ASSERT(0 == p_clt->m_sent_len);
-    if (p_send_buf->m_content_len > 0) {
-        p_clt->m_select_type |= SELECT_MW; // 写事件
+    // http响应体
+    switch (p_clt->m_resp.m_resp_status) {
+    case RS_HTTP_200:
+        {
+            pc_status_line = HTTP200;
+            break;
+        }
+    case RS_HTTP_403:
+        {
+            if ((p_clt->m_send_buf.m_capacity - p_clt->m_send_buf.m_size)
+                    < HTTP403CONTENT_LEN)
+            {
+                if (-1 == doublesize_buf(&p_clt->m_send_buf, 2)) {
+                    return -1;
+                }
+            }
+            (void)memcpy(&p_clt->m_send_buf.mp_data[p_clt->m_send_buf.m_size],
+                         HTTP403CONTENT,
+                         HTTP403CONTENT_LEN);
+            p_clt->m_send_buf.m_size += HTTP403CONTENT_LEN;
+
+            break;
+        }
+    case RS_HTTP_404:
+        {
+            if ((p_clt->m_send_buf.m_capacity - p_clt->m_send_buf.m_size)
+                    < HTTP404CONTENT_LEN)
+            {
+                if (-1 == doublesize_buf(&p_clt->m_send_buf, 2)) {
+                    return -1;
+                }
+            }
+            (void)memcpy(&p_clt->m_send_buf.mp_data[p_clt->m_send_buf.m_size],
+                         HTTP404CONTENT,
+                         HTTP404CONTENT_LEN);
+            p_clt->m_send_buf.m_size += HTTP404CONTENT_LEN;
+
+            break;
+        }
+    default:
+        {
+            ASSERT(0);
+
+            break;
+        }
     }
+
+
+    // 发送
+    p_clt->m_send_buf.m_seek = 0;
+    while (TRUE) {
+        int sent_size = send(p_clt->m_cmnct_fd,
+                             &p_clt->m_send_buf.mp_data
+                                [p_clt->m_send_buf.m_seek],
+                             p_clt->m_send_buf.m_size,
+                             0);
+        int send_errno = errno;
+
+        if (sent_size > 0) {
+            p_clt->m_send_buf.m_seek += sent_size;
+            p_clt->m_resp.m_sent_size += sent_size;
+
+            if (p_clt->m_send_buf.m_seek < p_clt->m_send_buf.m_size) {
+                continue;
+            }
+
+            if ((-1 == p_clt->m_resp.m_file.m_fd)
+                    || (p_clt->m_resp.m_sent_size
+                            >= p_clt->m_resp.m_file.m_size))
+            {
+                // 发送完毕
+                p_clt->m_select_type |= SELECT_MR;
+                p_clt->m_select_type &= ~SELECT_MW;
+                clean_buf(&p_clt->m_send_buf);
+
+                break;
+            }
+
+            ASSERT(0);
+        } else if ((-1 == sent_size) && (EAGAIN == send_errno)) {
+            break;
+        } else {
+            return -1;
+        }
+    }
+
+    return 0;
 }
 
-static int handle_http_response(client_t *p_clt,
-                                http_request_t *p_requ)
+static int handle_http_requ(context_t *p_context, client_t *p_clt)
 {
-    int rslt = 0;
     int rdfd = 0;
-    int ntow = 0;
+    int requ_method = 0;
+    str_t requ_line = {
+        NULL, 0,
+    };
+    str_t item = {
+        NULL, 0,
+    };
+    path_t path_tmp = {{NULL}};
+    path_t filepath = {{NULL}};
     struct stat fp_stat = {0};
-    buf_t *p_send_buf = NULL;
-    char real_path[PATH_MAX] = {0x00};
-    int real_path_len = 0;
-    char *p_mimetype = NULL;
     char *p_filetype = NULL;
-    str_t file_size = {NULL};
-    char content_len[32] = {0x00};
 
+    ASSERT(NULL != p_context);
     ASSERT(NULL != p_clt);
-    p_send_buf = &p_clt->m_send_buf;
 
-    // ***** 访问文件 *****
-    if (-1 == stat(p_requ->m_filepath.mp_data, &fp_stat)) {
-        // 404
-
-        return 0;
-    }
-
-    if (S_ISDIR(fp_stat.st_mode)) {
-        if ('/' != p_requ->m_filepath.mp_data[p_requ->m_filepath.m_len - 1]) {
-            p_requ->m_filepath.mp_data[p_requ->m_filepath.m_len] = '/';
-            ++p_requ->m_filepath.m_len;
+    requ_line.mp_data = p_clt->m_recv_buf.mp_data;
+    requ_line.m_len = 0;
+    for (int i = 0; 0x00 != requ_line.mp_data[i]; ++i) {
+        if ('\r' == requ_line.mp_data[i]) {
+            break;
         }
-        STR_CPY(p_requ->m_filepath, p_requ->m_filepath.m_len, INDEX_FILE);
+        ++requ_line.m_len;
+    }
+    if (0 == requ_line.m_len) {
+        fprintf(stderr, "[ERROR] illegal request!\n");
+
+        return -1;
     }
 
-    if (NULL == realpath(p_requ->m_filepath.mp_data, real_path)) {
-        // 404
-        http_response_404(p_clt);
+    // ***** 解析请求行 *****
+    // 解析请求方法
+    item.mp_data = requ_line.mp_data;
+    item.m_len = 0;
+    for (int i = 0; '\r' != item.mp_data[i]; ++i) {
+        if (SPACE == item.mp_data[i]) {
+            break;
+        }
+        ++item.m_len;
+    }
+    requ_method = str_hash(item);
+    switch (requ_method) {
+    case RM_HTTP_GET:
+        {
+            p_clt->m_requ.m_requ_method = RM_HTTP_GET;
+
+            break;
+        }
+    default:
+        {
+            fprintf(stderr, "[ERROR] unknown request method!\n");
+
+            return -1;
+        }
+    }
+
+    // 解析请求文件
+    for (int i = 0; '\r' != item.mp_data[i]; ++i) {
+        if ('/' == item.mp_data[i]) {
+            item.mp_data += i;
+
+            break;
+        }
+    }
+    if ('/' != item.mp_data[0]) {
+        fprintf(stderr, "[ERROR] parse request file failed!\n");
+
+        return -1;
+    }
+
+    item.m_len = 0;
+    for (int i = 0; '\r' != item.mp_data[i]; ++i) {
+        if (SPACE == item.mp_data[i]) {
+            break;
+        }
+        ++item.m_len;
+    }
+    if ((item.m_len < 1) || (item.m_len > 128)) {
+        fprintf(stderr, "[ERROR] illegal file name!\n");
+
+        return -1;
+    }
+
+    // 生成文件路径
+    init_path(&path_tmp);
+    init_path(&filepath);
+    STR_CPY(path_tmp.m_path, path_tmp.m_path.m_len, p_context->m_path_root);
+    STR_CPY(path_tmp.m_path, path_tmp.m_path.m_len, item);
+    if (NULL == realpath(path_tmp.m_path.mp_data, filepath.m_path.mp_data)) {
+        p_clt->m_resp.m_file.m_fd = -1;
+        p_clt->m_resp.m_file.m_size = HTTP404CONTENT_LEN;
+        p_clt->m_resp.m_resp_status = RS_HTTP_404;
+        p_clt->m_resp.mpc_mime = "text/html";
 
         return 0;
     }
-    real_path_len = strlen(real_path);
-    fprintf(stderr, "filename: %s\n", real_path);
-
-    if (-1 == stat(p_requ->m_filepath.mp_data, &fp_stat)) {
-        // 404
-        http_response_404(p_clt);
-
-        return 0;
+    filepath.m_path.m_len = strlen(filepath.m_path.mp_data);
+    ASSERT('/' != filepath.m_path.mp_data[filepath.m_path.m_len - 1]);
+    ASSERT(0 == stat(filepath.m_path.mp_data, &fp_stat));
+    if (S_ISDIR(fp_stat.st_mode)) {
+        filepath.m_path.mp_data[filepath.m_path.m_len] = '/';
+        ++filepath.m_path.m_len;
+        STR_CPY(filepath.m_path, filepath.m_path.m_len, INDEX_FILE);
     }
 
-    rdfd = open(real_path, O_RDONLY);
-    if (-1 == rdfd) {
-        // 404
-        http_response_404(p_clt);
-
-        return 0;
-    }
-    p_filetype = &real_path[real_path_len - 1];
-    while (real_path != p_filetype) {
+    // 获取文件类型
+    p_filetype = &filepath.m_path.mp_data[filepath.m_path.m_len - 1];
+    while (p_filetype != filepath.m_path.mp_data) {
         if ('.' == p_filetype[0]) {
             ++p_filetype;
 
@@ -303,66 +454,61 @@ static int handle_http_response(client_t *p_clt,
         --p_filetype;
     }
 
-    if (real_path == p_filetype) {
-        p_filetype = "unkown";
-    }
-    fprintf(stderr, "filetype: %s\n", p_filetype);
+    // 打开文件
+    rdfd = open(filepath.m_path.mp_data, O_RDONLY);
+    if (-1 == rdfd) {
+        p_clt->m_resp.m_file.m_fd = -1;
+        p_clt->m_resp.m_file.m_size = HTTP403CONTENT_LEN;
+        p_clt->m_resp.m_resp_status = RS_HTTP_403;
+        p_clt->m_resp.mpc_mime = "text/html";
 
+        return 0;
+    }
+    
+    // 生成响应
+    p_clt->m_resp.m_resp_status = RS_HTTP_200;
+    p_clt->m_resp.m_file.m_fd = rdfd;
+    p_clt->m_resp.m_file.m_size = fp_stat.st_size;
     if (0 == strcmp(p_filetype, "html")) {
-        p_mimetype = "text/html";
+        p_clt->m_resp.mpc_mime = "text/html";
     } else if (0 == strcmp(p_filetype, "png")) {
-        p_mimetype = "image/png";
+        p_clt->m_resp.mpc_mime = "image/png";
     } else if (0 == strcmp(p_filetype, "jpg")) {
-        p_mimetype = "image/jpeg";
+        p_clt->m_resp.mpc_mime = "image/jpeg";
     } else if (0 == strcmp(p_filetype, "jpeg")) {
-        p_mimetype = "image/jpeg";
+        p_clt->m_resp.mpc_mime = "image/jpeg";
     } else if (0 == strcmp(p_filetype, "txt")) {
-        p_mimetype = "text/plain";
+        p_clt->m_resp.mpc_mime = "text/plain";
     } else if (0 == strcmp(p_filetype, "flv")) {
-        p_mimetype = "video/flv";
+        p_clt->m_resp.mpc_mime = "video/flv";
     } else if (0 == strcmp(p_filetype, "mp4")) {
-        p_mimetype = "video/mp4";
-    } else if (0 == strcmp(p_filetype, "avi")) {
-        p_mimetype = "video/avi";
-    } else if (0 == strcmp(p_filetype, "rmvb")) {
-        p_mimetype = "video/rmvb";
+        p_clt->m_resp.mpc_mime = "video/mp4";
+    } else if(0 == strcmp(p_filetype, "avi")) {
+        p_clt->m_resp.mpc_mime = "video/avi";
+    } else if(0 == strcmp(p_filetype, "rmvb")) {
+        p_clt->m_resp.mpc_mime = "video/rmvb";
     } else {
-        p_mimetype = "application/octet-stream";
+        p_clt->m_resp.mpc_mime = "application/octet-stream";
     }
 
-    file_size.mp_data = content_len;
-    file_size.m_len = 0;
-    ASSERT(0 < offset_to_str(fp_stat.st_size,
-                             file_size,
-                             ARRAY_COUNT(content_len)));
-    fprintf(stderr, "file_size: %s\n", file_size.mp_data);
+    return 0;
+}
 
-    ntow = snprintf(p_send_buf->mp_data,
-                    p_send_buf->m_size,
-                    HTTP200
-                    SERVER_NAME
-                    "Content-Length: 13\r\n"
-                    "Cache-Control: no-cache\r\n"
-                    "Connection: keep-alive\r\n"
-                    "Content-Type: text/html\r\n\r\n"
-                    "Hello, World!");
-    p_send_buf->m_content_len = MIN(ntow, p_send_buf->m_size);
+static void handle_http_resp(client_t *p_clt)
+{
+    ASSERT(NULL != p_clt);
 
-    ASSERT(0 == p_clt->m_sent_len);
-    if (p_send_buf->m_content_len > 0) {
-        p_clt->m_select_type |= SELECT_MW; // 写事件
-    }
+    http_send(p_clt);
 
-    ASSERT(rdfd > 0);
-    close(rdfd);
-
-    return rslt;
+    return;
 }
 
 static void ts_perror(char const *pc_msg, int error_no)
 {
     char *p_desc = NULL;
     char err_buf[256] = {0x00};
+
+    ASSERT(NULL != pc_msg);
 
     p_desc = strerror_r(error_no, err_buf, ARRAY_COUNT(err_buf));
     err_buf[ARRAY_COUNT(err_buf) - 1] = 0x00;
@@ -375,6 +521,8 @@ static void handle_connection(context_t *p_context)
 {
     int cmnct_fd = 0;
     client_t *p_clt = NULL;
+
+    ASSERT(NULL != p_context);
 
     if (NULL == p_context->mp_free_clients) { // 无法再接受新连接
         return;
@@ -411,7 +559,7 @@ static void handle_connection(context_t *p_context)
         clean_buf(&p_clt->m_recv_buf);
     }
     if (is_buf_empty(&p_clt->m_send_buf)) {
-        if (-1 == create_buf(&p_clt->m_send_buf, MIN_BUF_SIZE)) {
+        if (-1 == create_buf(&p_clt->m_send_buf, 2 * MIN_BUF_SIZE)) {
             ASSERT(0 == close(cmnct_fd));
 
             return;
@@ -437,7 +585,9 @@ static void handle_disconnection(context_t *p_context,
 
     // 断开连接
     if (close_wait) { // 被动断开
-        ASSERT(0 == shutdown(p_clt->m_cmnct_fd, SHUT_RDWR));
+        if (-1 == shutdown(p_clt->m_cmnct_fd, SHUT_RDWR)) {
+            ts_perror("shut down failed!", errno);
+        }
     } else { // 主动断开
         ASSERT(0 == shutdown(p_clt->m_cmnct_fd, SHUT_WR));
         while (TRUE) {
@@ -465,15 +615,12 @@ static void handle_disconnection(context_t *p_context,
     (void)memset(&p_clt->m_clt_addr, 0, sizeof(struct sockaddr_in));
     destroy_buf(&p_clt->m_recv_buf);
     destroy_buf(&p_clt->m_send_buf);
-    p_clt->m_sent_len = 0;
 
     return;
 }
 
-static int handle_data_input(context_t *p_context, client_t *p_clt)
+static void handle_data_input(context_t *p_context, client_t *p_clt)
 {
-    int rslt = 0;
-
     ASSERT(NULL != p_clt);
 
     while (TRUE) {
@@ -482,41 +629,50 @@ static int handle_data_input(context_t *p_context, client_t *p_clt)
         int recv_errno = 0;
 
         if (is_buf_full(&p_clt->m_recv_buf)) { // 缓冲满
-            if (p_clt->m_recv_buf.m_size > 4096 * 255) {
+            if (p_clt->m_recv_buf.m_size > 4096 * 4) {
                 // 恶意请求
-                rslt = -1;
+                handle_disconnection(p_context, p_clt, FALSE); // 主动断开
 
                 break;
             }
-            if (-1 == doublesize_buf(&p_clt->m_recv_buf)) {
-                rslt = -1;
+            if (-1 == doublesize_buf(&p_clt->m_recv_buf, 2)) {
+                handle_disconnection(p_context, p_clt, FALSE); // 主动断开
 
                 break;
             }
         }
 
         recved_size = recv(p_clt->m_cmnct_fd,
-                           &p_recv_buf->mp_data[p_recv_buf->m_content_len],
-                           p_recv_buf->m_size - p_recv_buf->m_content_len - 1,
+                           &p_recv_buf->mp_data[p_recv_buf->m_size],
+                           p_recv_buf->m_size - p_recv_buf->m_size - 1,
                            0);
         recv_errno = errno;
         if (recved_size > 0) {
-            p_recv_buf->m_content_len += recved_size;
+            p_recv_buf->m_size += recved_size;
 
             continue;
         } else if ((-1 == recved_size) && (EAGAIN == recv_errno)) {
-            http_request_t hr = {NULL};
+            int requ_rslt = 0;
 
-            ASSERT(0x00 == p_recv_buf->mp_data[p_recv_buf->m_content_len]);
+            ASSERT(0x00 == p_recv_buf->mp_data[p_recv_buf->m_size]);
 
-            if (-1 == handle_http_request(p_context, p_clt, &hr)) {
+            requ_rslt = handle_http_requ(p_context, p_clt);
+            if (0 == requ_rslt) {
+                // 清空接收缓冲
+                clean_buf(&p_clt->m_recv_buf);
+
+                // 有写事件
+                p_clt->m_select_type &= ~SELECT_MR; // 暂时屏蔽读事件
+                p_clt->m_select_type |= SELECT_MW; // 写事件置位
+
+                break;
+            } else if (-1 == requ_rslt) {
                 handle_disconnection(p_context, p_clt, FALSE); // 主动断开
 
                 break;
+            } else {
+                ASSERT(0);
             }
-            handle_http_response(p_clt, &hr);
-
-            break;
         } else {
             handle_disconnection(p_context, p_clt, TRUE); // 被动断开
 
@@ -524,7 +680,7 @@ static int handle_data_input(context_t *p_context, client_t *p_clt)
         }
     }
 
-    return rslt;
+    return;
 }
 
 static void handle_read_events(context_t *p_context,
@@ -555,10 +711,7 @@ static void handle_read_events(context_t *p_context,
 
             // 处理接收数据
             ASSERT(NULL != p_clt);
-            if (-1 == handle_data_input(p_context, p_clt)) {
-                // 主动断开连接
-                handle_disconnection(p_context, p_clt, FALSE);
-            }
+            handle_data_input(p_context, p_clt);
         }
     }
 
@@ -571,7 +724,6 @@ static void handle_write_events(context_t *p_context,
 {
     for (int fd = 0; fd < fd_max + 1; ++fd) {
         client_t *p_clt = NULL;
-        int sent_size = 0;
 
         if (!FD_ISSET(fd, pc_fds_w)) {
             continue;
@@ -588,38 +740,8 @@ static void handle_write_events(context_t *p_context,
                 break;
             }
         }
-        p_clt->m_select_type &= ~SELECT_MW; // 清除写事件标识
 
-        ASSERT(0 == sent_size);
-        while (TRUE) {
-            int send_errno = 0;
-            int left_size = p_clt->m_send_buf.m_content_len - sent_size;
-
-            if (0 == left_size) { // 发送完毕
-                p_clt->m_sent_len = 0;
-                clean_buf(&p_clt->m_send_buf);
-
-                break;
-            }
-            sent_size = send(p_clt->m_cmnct_fd,
-                             &p_clt->m_send_buf.mp_data[sent_size],
-                             MIN(4096, left_size),
-                             0);
-            send_errno = errno;
-            if (sent_size > 0) {
-                p_clt->m_sent_len += sent_size;
-
-                continue;
-            } else if ((-1 == sent_size) && (EAGAIN == send_errno)) {
-                p_clt->m_select_type |= SELECT_MW; // 重设写事件标识，下次再发
-
-                break;
-            } else {
-                handle_disconnection(p_context, p_clt, FALSE); // 主动断开
-
-                break;
-            }
-        }
+        handle_http_resp(p_clt);
     }
 
     return;
@@ -670,11 +792,6 @@ static int event_loop(context_t *p_context)
                     FD_SET(p_clt->m_cmnct_fd, &fds_r);
                 }
                 if (p_clt->m_select_type & SELECT_MW) {
-                    #define CONDITION       \
-                        (p_clt->m_sent_len < p_clt->m_send_buf.m_content_len)
-                    ASSERT(CONDITION);
-                    #undef CONDITION
-
                     FD_SET(p_clt->m_cmnct_fd, &fds_w);
                 }
             } else {
@@ -821,6 +938,7 @@ void destroy_context(context_t *p_context)
     ASSERT(0 == close(p_context->m_lsn_fd));
 
     // 释放客户端结构缓存
+    fprintf(stderr, "%p\n", p_context->mp_client_cache);
     free(p_context->mp_client_cache);
 
     return;
@@ -848,8 +966,26 @@ static int shfs_main(str_t const PATH_ROOT)
     return 0;
 }
 
+#define TEST 0
 int main(int argc, char *argv[])
 {
+#if TEST
+    char const *pc_status_line = NULL;
+    char len_buf[32] = {0x00};
+    str_t len = {len_buf};
+    buf_t buf;
+
+    create_buf(&buf, MIN_BUF_SIZE);
+    doublesize_buf(&buf, 2);
+    doublesize_buf(&buf, 2);
+    destroy_buf(&buf);
+    offset_to_str(18, &len, 32);
+
+    printf("%d\n", ARRAY_COUNT(len_buf));
+    printf("%s %d\n", len.mp_data, len.m_len);
+
+    return 0;
+#else
     str_t path_root = {NULL};
 
     if (1 == argc) {
@@ -861,4 +997,5 @@ int main(int argc, char *argv[])
     path_root.m_len = strlen(argv[1]);
 
     return shfs_main(path_root);
+#endif
 }

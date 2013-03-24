@@ -7,15 +7,14 @@
 
 typedef struct {
     char *mp_data;
-    ssize_t m_size;
-    ssize_t m_content_len;
+    int m_seek; // 缓冲指针
+    int m_size;
+    int m_capacity;
 } buf_t;
 
 static inline
 int_t create_buf(buf_t *const THIS, ssize_t size)
 {
-    int_t rslt = 0;
-
     ASSERT(NULL != THIS);
 
     if (size < MIN_BUF_SIZE) {
@@ -24,19 +23,13 @@ int_t create_buf(buf_t *const THIS, ssize_t size)
 
     THIS->mp_data = (char *)malloc(size);
     if (NULL == THIS->mp_data) {
-        goto FAILED;
+        return -1;
     }
-    THIS->m_size = size;
-    THIS->m_content_len = 0;
+    THIS->m_seek = -1;
+    THIS->m_size = 0;
+    THIS->m_capacity = size;
 
-    do {
-        break;
-
-FAILED:
-        rslt = -1;
-    } while (0);
-
-    return rslt;
+    return 0;
 }
 
 static inline
@@ -44,8 +37,9 @@ void clean_buf(buf_t *const THIS)
 {
     ASSERT(NULL != THIS);
 
-    (void)memset(THIS->mp_data, 0, THIS->m_size);
-    THIS->m_content_len = 0;
+    (void)memset(THIS->mp_data, 0, THIS->m_capacity);
+    THIS->m_seek = -1;
+    THIS->m_size = 0;
 
     return;
 }
@@ -63,38 +57,34 @@ int is_buf_full(buf_t *const THIS)
 {
     ASSERT(NULL != THIS);
 
-    return (THIS->m_content_len < THIS->m_size - 1) ? FALSE : TRUE;
+    return (THIS->m_size < THIS->m_capacity - 1) ? FALSE : TRUE;
 }
 
 static inline
-int doublesize_buf(buf_t *const THIS)
+int doublesize_buf(buf_t *const THIS, int n)
 {
-    int rslt = 0;
     char *p_tmp = NULL;
-    ssize_t tmp_size = 2 * THIS->m_size;
+    ssize_t tmp_size = n * THIS->m_capacity;
+
+    ASSERT(NULL != THIS);
+    ASSERT(n > 1);
 
     p_tmp = (char *)malloc(tmp_size);
     if (NULL == p_tmp) {
-        goto FAILED;
+        return -1;
     }
 
     (void)memset(&p_tmp[0], 0, tmp_size);
     if (NULL != THIS->mp_data) {
-        (void)memcpy(&p_tmp[0], &THIS->mp_data[0], THIS->m_content_len);
+        (void)memcpy(&p_tmp[0], &THIS->mp_data[0], THIS->m_size);
 
+        fprintf(stderr, "%s %d free %p\n", __FILE__, __LINE__, THIS->mp_data);
         free(THIS->mp_data);
     }
     THIS->mp_data = p_tmp;
-    THIS->m_size = tmp_size;
+    THIS->m_capacity = tmp_size;
 
-    do {
-        break;
-
-FAILED:
-        rslt = -1;
-    } while (0);
-
-    return rslt;
+    return 0;
 }
 
 static inline
@@ -102,9 +92,10 @@ void destroy_buf(buf_t *const THIS)
 {
     ASSERT(NULL != THIS);
 
+    fprintf(stderr, "free %p\n", THIS->mp_data);
     free(THIS->mp_data);
     THIS->mp_data = NULL;
     THIS->m_size = 0;
-    THIS->m_content_len = 0;
+    THIS->m_capacity = 0;
 }
 #endif // __BUF_H__
