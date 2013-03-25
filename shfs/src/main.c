@@ -61,7 +61,6 @@ typedef enum {
 
 // http响应状态
 typedef enum {
-    RS_HTTP_000 = 0,  // 无效的响应状态，用于续传
     RS_HTTP_200 = 200,
     RS_HTTP_403 = 403,
     RS_HTTP_404 = 404,
@@ -91,6 +90,7 @@ typedef struct {
     file_t m_file;
     char const *mpc_mime; // mime类型
     off_t m_sent_size; // 已发送大小
+    off_t m_total_size; // 总大小
 } http_resp_t;
 
 
@@ -192,208 +192,106 @@ typedef struct {
 
 static int send_buf(int fd, buf_t *p_buf)
 {
-    int total_sent = 0;
+    int sent = 0;
+    int ntow = 0;
 
     ASSERT(NULL != p_buf);
 
-    total_sent = 0;
+    sent = 0;
     while (TRUE) {
         int sent_size = 0;
         int sent_errno = 0;
 
-        if (p_buf->m_seek >= p_buf->m_size) { // 无数据可发
+        ntow = p_buf->m_size - p_buf->m_seek;
+        if (0 == ntow) {
             break;
         }
 
         sent_size = send(fd,
                          &p_buf->mp_data[p_buf->m_seek],
-                         p_buf->m_size - p_buf->m_seek,
+                         ntow,
                          0);
         sent_errno = errno;
 
         if (sent_size > 0) {
             p_buf->m_seek += sent_size;
-            total_sent += sent_size;
+            sent += sent_size;
 
             continue;
         } else if ((-1 == sent_size) &&(EAGAIN == sent_errno)) {
             break;
         } else {
-            total_sent = -1;
+            sent = -1;
 
             break;
         }
     }
 
-    return total_sent;
+    return sent;
 }
 
 static int http_send(client_t *p_clt)
 {
-    int ntow = 0;
-    char const *pc_status_line = NULL;
-    char len_buf[32] = {0x00};
-    str_t len = {len_buf, 0};
+    int send_rslt = 0;
 
     ASSERT(NULL != p_clt);
 
-    ASSERT(offset_to_str(p_clt->m_resp.m_file.m_size,
-                         &len,
-                         ARRAY_COUNT(len_buf)) > 0);
+    // 发送缓存
+    send_rslt = send_buf(p_clt->m_cmnct_fd, &p_clt->m_send_buf);
+    if ( -1 == send_rslt) {
+        return -1;
+    }
+    ASSERT(send_rslt >= 0);
+    p_clt->m_resp.m_sent_size += send_rslt;
 
-    switch (p_clt->m_resp.m_resp_status) {
-    case RS_HTTP_000:
-        {
-            break;
-        }
-    case RS_HTTP_200:
-        {
-            pc_status_line = HTTP200;
-            break;
-        }
-    case RS_HTTP_403:
-        {
-            pc_status_line = HTTP403;
-            break;
-        }
-    case RS_HTTP_404:
-        {
-            pc_status_line = HTTP404;
-            break;
-        }
-    default:
-        {
-            ASSERT(0);
-
-            break;
-        }
+    if (p_clt->m_send_buf.m_seek < p_clt->m_send_buf.m_size) {
+        return 0;
     }
 
-    // 清空发送缓冲
+    if (p_clt->m_resp.m_sent_size >= p_clt->m_resp.m_total_size) {
+        // 结束会话
+        p_clt->m_select_type |= SELECT_MR;
+        p_clt->m_select_type &= (~SELECT_MW);
+
+        return 0;
+    }
+
+    // 继续填充缓存
     clean_buf(&p_clt->m_send_buf);
-
-    // http响应头
-    ntow = snprintf(p_clt->m_send_buf.mp_data,
-                    p_clt->m_send_buf.m_capacity,
-                    "%s"
-                    SERVER_NAME
-                    "Content-Length: %s\r\n"
-                    "Cache-Control: no-cache\r\n"
-                    "Connection: keep-alive\r\n"
-                    "Content-Type: text/html\r\n\r\n",
-                    pc_status_line,
-                    len.mp_data);
-    p_clt->m_send_buf.m_size = MIN(ntow, p_clt->m_send_buf.m_capacity);
-
-    // http响应体
     switch (p_clt->m_resp.m_resp_status) {
     case RS_HTTP_200:
         {
-            break;
-        }
-    case RS_HTTP_403:
-        {
-            if ((p_clt->m_send_buf.m_capacity - p_clt->m_send_buf.m_size)
-                    < HTTP403CONTENT_LEN)
-            {
-                if (-1 == doublesize_buf(&p_clt->m_send_buf, 2)) {
-                    return -1;
-                }
-            }
-            (void)memcpy(&p_clt->m_send_buf.mp_data[p_clt->m_send_buf.m_size],
-                         HTTP403CONTENT,
-                         HTTP403CONTENT_LEN);
-            p_clt->m_send_buf.m_size += HTTP403CONTENT_LEN;
+            int read_size = 0;
 
-            break;
-        }
-    case RS_HTTP_404:
-        {
-            if ((p_clt->m_send_buf.m_capacity - p_clt->m_send_buf.m_size)
-                    < HTTP404CONTENT_LEN)
-            {
-                if (-1 == doublesize_buf(&p_clt->m_send_buf, 2)) {
-                    return -1;
-                }
-            }
-            (void)memcpy(&p_clt->m_send_buf.mp_data[p_clt->m_send_buf.m_size],
-                         HTTP404CONTENT,
-                         HTTP404CONTENT_LEN);
-            p_clt->m_send_buf.m_size += HTTP404CONTENT_LEN;
-
-            break;
-        }
-    default:
-        {
-            ASSERT(0);
-
-            break;
-        }
-    }
-
-
-    // 发送
-    p_clt->m_send_buf.m_seek = 0;
-    while (TRUE) {
-        int sent_size = send(p_clt->m_cmnct_fd,
-                             &p_clt->m_send_buf.mp_data
-                                [p_clt->m_send_buf.m_seek],
-                             p_clt->m_send_buf.m_size,
-                             0);
-        int send_errno = errno;
-
-        if (sent_size > 0) {
-            ssize_t read_size = 0;
-            int read_errno = 0;
-
-            p_clt->m_send_buf.m_seek += sent_size;
-            p_clt->m_resp.m_sent_size += sent_size;
-
-            if (p_clt->m_send_buf.m_seek < p_clt->m_send_buf.m_size) {
-                continue;
-            }
-
-            // ***** 当前缓冲区发送完毕 *****
-            clean_buf(&p_clt->m_send_buf);
-            if (p_clt->m_resp.m_sent_size >= p_clt->m_resp.m_file.m_size)
-            {
-                // 发送完毕
-                p_clt->m_select_type |= SELECT_MR;
-                p_clt->m_select_type &= ~SELECT_MW;
-                clean_buf(&p_clt->m_send_buf);
-
-                break;
-            }
-
-            // 续传
             ASSERT(-1 != p_clt->m_resp.m_file.m_fd);
             read_size = read(p_clt->m_resp.m_file.m_fd,
                              p_clt->m_send_buf.mp_data,
                              MIN_BUF_SIZE);
-            read_errno = errno;
-            if (0 == read_size) {
-                // 上次就发完了
-                p_clt->m_select_type |= SELECT_MR;
-                p_clt->m_select_type &= ~SELECT_MW;
-                clean_buf(&p_clt->m_send_buf);
-
-                break;
-            } else if (read_size > 0) {
-                ASSERT(0 == p_clt->m_send_buf.m_seek);
-
-                p_clt->m_resp.m_resp_status = RS_HTTP_000;
-                p_clt->m_send_buf.m_size = read_size;
-
-                break;
-            } else {
-                return -1;
-            }
-        } else if ((-1 == sent_size) && (EAGAIN == send_errno)) {
-            // 下次再发
+            ASSERT(read_size > 0);
+            p_clt->m_send_buf.m_seek = 0;
+            p_clt->m_send_buf.m_size = read_size;
 
             break;
-        } else {
-            return -1;
+        }
+    case RS_HTTP_403:
+        {
+            (void)memcpy(p_clt->m_send_buf.mp_data,
+                         HTTP403CONTENT,
+                         HTTP403CONTENT_LEN);
+            p_clt->m_send_buf.m_seek = 0;
+            p_clt->m_send_buf.m_size = HTTP403CONTENT_LEN;
+
+            break;
+        }
+    case RS_HTTP_404:
+        {
+            (void)memcpy(p_clt->m_send_buf.mp_data,
+                         HTTP404CONTENT,
+                         HTTP404CONTENT_LEN);
+            p_clt->m_send_buf.m_seek = 0;
+            p_clt->m_send_buf.m_size = HTTP404CONTENT_LEN;
+
+            break;
         }
     }
 
@@ -496,6 +394,7 @@ static int handle_http_requ(context_t *p_context, client_t *p_clt)
         p_clt->m_resp.m_resp_status = RS_HTTP_404;
         p_clt->m_resp.mpc_mime = "text/html";
         p_clt->m_resp.m_sent_size = 0;
+        p_clt->m_resp.m_total_size = 0;
 
         return 0;
     }
@@ -527,10 +426,15 @@ static int handle_http_requ(context_t *p_context, client_t *p_clt)
         p_clt->m_resp.m_resp_status = RS_HTTP_403;
         p_clt->m_resp.mpc_mime = "text/html";
         p_clt->m_resp.m_sent_size = 0;
+        p_clt->m_resp.m_total_size = 0;
 
         return 0;
     }
-    
+    ASSERT(0 != rdfd);
+
+    // 获取文件大小
+    ASSERT(0 == fstat(rdfd, &fp_stat));
+
     // 生成响应
     p_clt->m_resp.m_resp_status = RS_HTTP_200;
     p_clt->m_resp.m_file.m_fd = rdfd;
@@ -556,6 +460,8 @@ static int handle_http_requ(context_t *p_context, client_t *p_clt)
     } else {
         p_clt->m_resp.mpc_mime = "application/octet-stream";
     }
+    p_clt->m_resp.m_sent_size = 0;
+    p_clt->m_resp.m_total_size = 0;
 
     return 0;
 }
@@ -564,6 +470,58 @@ static void handle_http_resp(client_t *p_clt)
 {
     ASSERT(NULL != p_clt);
 
+    if (0 == p_clt->m_resp.m_total_size) { // 计算发送总大小
+        int ntow = 0;
+        char len_buf[32] = {0x00};
+        str_t len = {len_buf, 0};
+        char const *pc_status_line = NULL;
+
+        // 文件长度字符串
+        ASSERT(offset_to_str(p_clt->m_resp.m_file.m_size,
+                             &len,
+                             ARRAY_COUNT(len_buf)) > 0);
+
+        // 清空发送缓存
+        clean_buf(&p_clt->m_send_buf);
+        switch (p_clt->m_resp.m_resp_status) {
+        case RS_HTTP_200:
+            {
+                pc_status_line = HTTP200;
+
+                break;
+            }
+        case RS_HTTP_403:
+            {
+                pc_status_line = HTTP403;
+
+                break;
+            }
+        case RS_HTTP_404:
+            {
+                pc_status_line = HTTP404;
+
+                break;
+            }
+        }
+        ntow = snprintf(p_clt->m_send_buf.mp_data,
+                        p_clt->m_send_buf.m_capacity,
+                        "%s"
+                        SERVER_NAME
+                        "Content-Length: %s\r\n"
+                        "Cache-Control: no-cache\r\n"
+                        "Connection: keep-alive\r\n"
+                        "Content-Type: %s\r\n\r\n",
+                        pc_status_line,
+                        len.mp_data,
+                        p_clt->m_resp.mpc_mime);
+        ASSERT(ntow < p_clt->m_send_buf.m_capacity);  // 不会产生过长的响应
+        p_clt->m_send_buf.m_size = ntow;
+
+        p_clt->m_resp.m_total_size = ntow + p_clt->m_resp.m_file.m_size;
+    }
+    ASSERT(p_clt->m_resp.m_total_size > 0);
+
+    //
     http_send(p_clt);
 
     return;
@@ -593,7 +551,7 @@ static void handle_connection(context_t *p_context)
     if (NULL == p_context->mp_free_clients) { // 无法再接受新连接
         return;
     }
-    
+
     // 处理接受连接
     p_clt = CONTAINER_OF(p_context->mp_free_clients, client_t, m_node);
     cmnct_fd = handle_accept(p_context->m_lsn_fd, p_clt);
@@ -614,6 +572,7 @@ static void handle_connection(context_t *p_context)
 
     // 初始化客户端
     p_clt->m_cmnct_fd = cmnct_fd;
+    p_clt->m_resp.m_file.m_fd = -1;
     p_clt->m_select_type |= SELECT_MR; // 监视读事件
     if (is_buf_empty(&p_clt->m_recv_buf)) {
         if (-1 == create_buf(&p_clt->m_recv_buf, MIN_BUF_SIZE)) {
@@ -658,7 +617,7 @@ static void handle_disconnection(context_t *p_context,
         ASSERT(0 == shutdown(p_clt->m_cmnct_fd, SHUT_WR));
         while (TRUE) {
             char buf_tmp[256] = {0x00};
-                
+
             if (recv(p_clt->m_cmnct_fd,
                      buf_tmp,
                      ARRAY_COUNT(buf_tmp),
@@ -677,6 +636,11 @@ static void handle_disconnection(context_t *p_context,
     ASSERT(0 == close(p_clt->m_cmnct_fd));
     rm_node(&p_context->mp_inuse_clients, &p_clt->m_node);
     add_node(&p_context->mp_free_clients, &p_clt->m_node);
+    if (-1 != p_clt->m_resp.m_file.m_fd) {
+        ASSERT(0 != p_clt->m_resp.m_file.m_fd);
+        ASSERT(0 == close(p_clt->m_resp.m_file.m_fd));
+        p_clt->m_resp.m_file.m_fd = -1;
+    }
     p_clt->m_select_type = 0;
     (void)memset(&p_clt->m_clt_addr, 0, sizeof(struct sockaddr_in));
     destroy_buf(&p_clt->m_recv_buf);
@@ -728,7 +692,7 @@ static void handle_data_input(context_t *p_context, client_t *p_clt)
                 clean_buf(&p_clt->m_recv_buf);
 
                 // 有写事件
-                p_clt->m_select_type &= ~SELECT_MR; // 暂时屏蔽读事件
+                p_clt->m_select_type &= (~SELECT_MR); // 暂时屏蔽读事件
                 p_clt->m_select_type |= SELECT_MW; // 写事件置位
 
                 break;
@@ -840,7 +804,7 @@ static int event_loop(context_t *p_context)
 
         FD_ZERO(&fds_r);
         FD_ZERO(&fds_w);
-        
+
         // 重新设置描述符集
         FD_SET(p_context->m_lsn_fd, &fds_r);
         for (list_t *p_iter = p_context->mp_inuse_clients;
@@ -868,7 +832,7 @@ static int event_loop(context_t *p_context)
         // 重置定时器
         io_wait_tv.tv_sec = 7;
         io_wait_tv.tv_usec = 20 * 1000; // 20毫秒定时器
-        
+
         // 监视事件
         nevents = select(fd_max + 1, &fds_r, &fds_w, NULL, &io_wait_tv);
         if (nevents > 0) {
