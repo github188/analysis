@@ -190,6 +190,44 @@ typedef struct {
     list_t *mp_inuse_clients; // 客户端链
 } context_t;
 
+static int send_buf(int fd, buf_t *p_buf)
+{
+    int total_sent = 0;
+
+    ASSERT(NULL != p_buf);
+
+    total_sent = 0;
+    while (TRUE) {
+        int sent_size = 0;
+        int sent_errno = 0;
+
+        if (p_buf->m_seek >= p_buf->m_size) { // 无数据可发
+            break;
+        }
+
+        sent_size = send(fd,
+                         &p_buf->mp_data[p_buf->m_seek],
+                         p_buf->m_size - p_buf->m_seek,
+                         0);
+        sent_errno = errno;
+
+        if (sent_size > 0) {
+            p_buf->m_seek += sent_size;
+            total_sent += sent_size;
+
+            continue;
+        } else if ((-1 == sent_size) &&(EAGAIN == sent_errno)) {
+            break;
+        } else {
+            total_sent = -1;
+
+            break;
+        }
+    }
+
+    return total_sent;
+}
+
 static int http_send(client_t *p_clt)
 {
     int ntow = 0;
