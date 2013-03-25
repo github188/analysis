@@ -305,6 +305,9 @@ static int http_send(client_t *p_clt)
         int send_errno = errno;
 
         if (sent_size > 0) {
+            ssize_t read_size = 0;
+            int read_errno = 0;
+
             p_clt->m_send_buf.m_seek += sent_size;
             p_clt->m_resp.m_sent_size += sent_size;
 
@@ -312,10 +315,9 @@ static int http_send(client_t *p_clt)
                 continue;
             }
 
-            // 当前缓冲区发送完毕
-            if ((-1 == p_clt->m_resp.m_file.m_fd)
-                    || (p_clt->m_resp.m_sent_size
-                            >= p_clt->m_resp.m_file.m_size))
+            // ***** 当前缓冲区发送完毕 *****
+            clean_buf(&p_clt->m_send_buf);
+            if (p_clt->m_resp.m_sent_size >= p_clt->m_resp.m_file.m_size)
             {
                 // 发送完毕
                 p_clt->m_select_type |= SELECT_MR;
@@ -326,8 +328,28 @@ static int http_send(client_t *p_clt)
             }
 
             // 续传
+            ASSERT(-1 != p_clt->m_resp.m_file.m_fd);
+            read_size = read(p_clt->m_resp.m_file.m_fd,
+                             p_clt->m_send_buf.mp_data,
+                             MIN_BUF_SIZE);
+            read_errno = errno;
+            if (0 == read_size) {
+                // 上次就发完了
+                p_clt->m_select_type |= SELECT_MR;
+                p_clt->m_select_type &= ~SELECT_MW;
+                clean_buf(&p_clt->m_send_buf);
 
-            ASSERT(0);
+                break;
+            } else if (read_size > 0) {
+                ASSERT(0 == p_clt->m_send_buf.m_seek);
+
+                p_clt->m_resp.m_resp_status = RS_HTTP_000;
+                p_clt->m_send_buf.m_size = read_size;
+
+                break;
+            } else {
+                return -1;
+            }
         } else if ((-1 == sent_size) && (EAGAIN == send_errno)) {
             // 下次再发
 

@@ -38,7 +38,7 @@ void clean_buf(buf_t *const THIS)
     ASSERT(NULL != THIS);
 
     (void)memset(THIS->mp_data, 0, THIS->m_capacity);
-    THIS->m_seek = -1;
+    THIS->m_seek = 0;
     THIS->m_size = 0;
 
     return;
