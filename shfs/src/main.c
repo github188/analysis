@@ -251,7 +251,6 @@ static int http_send(client_t *p_clt)
     switch (p_clt->m_resp.m_resp_status) {
     case RS_HTTP_200:
         {
-            pc_status_line = HTTP200;
             break;
         }
     case RS_HTTP_403:
@@ -313,6 +312,7 @@ static int http_send(client_t *p_clt)
                 continue;
             }
 
+            // 当前缓冲区发送完毕
             if ((-1 == p_clt->m_resp.m_file.m_fd)
                     || (p_clt->m_resp.m_sent_size
                             >= p_clt->m_resp.m_file.m_size))
@@ -325,8 +325,12 @@ static int http_send(client_t *p_clt)
                 break;
             }
 
+            // 续传
+
             ASSERT(0);
         } else if ((-1 == sent_size) && (EAGAIN == send_errno)) {
+            // 下次再发
+
             break;
         } else {
             return -1;
@@ -431,6 +435,7 @@ static int handle_http_requ(context_t *p_context, client_t *p_clt)
         p_clt->m_resp.m_file.m_size = HTTP404CONTENT_LEN;
         p_clt->m_resp.m_resp_status = RS_HTTP_404;
         p_clt->m_resp.mpc_mime = "text/html";
+        p_clt->m_resp.m_sent_size = 0;
 
         return 0;
     }
@@ -461,6 +466,7 @@ static int handle_http_requ(context_t *p_context, client_t *p_clt)
         p_clt->m_resp.m_file.m_size = HTTP403CONTENT_LEN;
         p_clt->m_resp.m_resp_status = RS_HTTP_403;
         p_clt->m_resp.mpc_mime = "text/html";
+        p_clt->m_resp.m_sent_size = 0;
 
         return 0;
     }
