@@ -199,15 +199,15 @@ static int http_send(client_t *p_clt)
 
     ASSERT(NULL != p_clt);
 
-    if (RS_HTTP_000 == p_clt->m_resp.m_resp_status) {
-        return 0;
-    }
-
     ASSERT(offset_to_str(p_clt->m_resp.m_file.m_size,
                          &len,
                          ARRAY_COUNT(len_buf)) > 0);
 
     switch (p_clt->m_resp.m_resp_status) {
+    case RS_HTTP_000:
+        {
+            break;
+        }
     case RS_HTTP_200:
         {
             pc_status_line = HTTP200;
