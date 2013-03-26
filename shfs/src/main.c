@@ -674,7 +674,7 @@ static void handle_data_input(context_t *p_context, client_t *p_clt)
 
         recved_size = recv(p_clt->m_cmnct_fd,
                            &p_recv_buf->mp_data[p_recv_buf->m_size],
-                           p_recv_buf->m_size - p_recv_buf->m_size - 1,
+                           p_recv_buf->m_capacity - p_recv_buf->m_size - 1,
                            0);
         recv_errno = errno;
         if (recved_size > 0) {
@@ -692,8 +692,7 @@ static void handle_data_input(context_t *p_context, client_t *p_clt)
                 clean_buf(&p_clt->m_recv_buf);
 
                 // 有写事件
-                p_clt->m_select_type &= (~SELECT_MR); // 暂时屏蔽读事件
-                p_clt->m_select_type |= SELECT_MW; // 写事件置位
+                p_clt->m_select_type |= SELECT_MW;
 
                 break;
             } else if (-1 == requ_rslt) {
