@@ -449,6 +449,8 @@ static int handle_http_requ(context_t *p_context, client_t *p_clt)
         p_clt->m_resp.mpc_mime = "image/jpeg";
     } else if (0 == strcmp(p_filetype, "txt")) {
         p_clt->m_resp.mpc_mime = "text/plain";
+    } else if (0 == strcmp(p_filetype, "mp3")) {
+        p_clt->m_resp.mpc_mime = "audio/mpeg";
     } else if (0 == strcmp(p_filetype, "flv")) {
         p_clt->m_resp.mpc_mime = "video/flv";
     } else if (0 == strcmp(p_filetype, "mp4")) {
