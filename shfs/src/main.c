@@ -3,6 +3,7 @@
 
 #define LSN_PORT        8000
 
+#define NODELAY         TRUE
 #define REUSEADDR       TRUE
 #define KEEPALIVE       TRUE
 
@@ -266,7 +267,7 @@ static int http_send(client_t *p_clt)
             ASSERT(-1 != p_clt->m_resp.m_file.m_fd);
             read_size = read(p_clt->m_resp.m_file.m_fd,
                              p_clt->m_send_buf.mp_data,
-                             MIN_BUF_SIZE);
+                             p_clt->m_send_buf.m_capacity);
             ASSERT(read_size > 0);
             p_clt->m_send_buf.m_seek = 0;
             p_clt->m_send_buf.m_size = read_size;
@@ -545,6 +546,9 @@ static void ts_perror(char const *pc_msg, int error_no)
 
 static void handle_connection(context_t *p_context)
 {
+    int recv_buf_size = 0;
+    int send_buf_size = 0;
+    socklen_t option_len = sizeof(int);
     int cmnct_fd = 0;
     client_t *p_clt = NULL;
 
@@ -571,13 +575,35 @@ static void handle_connection(context_t *p_context)
         return;
     }
 
+    // 获取缓冲大小
+    if (-1 == getsockopt(cmnct_fd,
+                         SOL_SOCKET,
+                         SO_RCVBUF,
+                         &recv_buf_size,
+                         &option_len))
+    {
+        ASSERT(0 == close(cmnct_fd));
+
+        return;
+    }
+
+    if (-1 == getsockopt(cmnct_fd,
+                         SOL_SOCKET,
+                         SO_SNDBUF,
+                         &send_buf_size,
+                         &option_len))
+    {
+        ASSERT(0 == close(cmnct_fd));
+
+        return;
+    }
 
     // 初始化客户端
     p_clt->m_cmnct_fd = cmnct_fd;
     p_clt->m_resp.m_file.m_fd = -1;
     p_clt->m_select_type |= SELECT_MR; // 监视读事件
     if (is_buf_empty(&p_clt->m_recv_buf)) {
-        if (-1 == create_buf(&p_clt->m_recv_buf, MIN_BUF_SIZE)) {
+        if (-1 == create_buf(&p_clt->m_recv_buf, recv_buf_size)) {
             ASSERT(0 == close(cmnct_fd));
 
             return;
@@ -586,7 +612,7 @@ static void handle_connection(context_t *p_context)
         clean_buf(&p_clt->m_recv_buf);
     }
     if (is_buf_empty(&p_clt->m_send_buf)) {
-        if (-1 == create_buf(&p_clt->m_send_buf, 2 * MIN_BUF_SIZE)) {
+        if (-1 == create_buf(&p_clt->m_send_buf, send_buf_size)) {
             ASSERT(0 == close(cmnct_fd));
 
             return;
@@ -854,6 +880,7 @@ static int init_lsn_fd(int lsn_fd)
 {
     int reuseaddr = REUSEADDR;
     int keepalive = KEEPALIVE;
+    int nodelay = NODELAY;
     struct sockaddr_in srv_addr = {
         .sin_family = AF_INET,
         .sin_port = htons(LSN_PORT),
@@ -887,6 +914,14 @@ static int init_lsn_fd(int lsn_fd)
                          SO_KEEPALIVE,
                          &keepalive,
                          sizeof(keepalive)))
+    {
+        return -1;
+    }
+
+    // TCP_NODELAY
+    if (-1 == setsockopt(lsn_fd,
+                         IPPROTO_TCP,
+                         TCP_NODELAY, &nodelay, sizeof(nodelay)))
     {
         return -1;
     }

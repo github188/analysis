@@ -19,6 +19,7 @@
 #include <sys/select.h>
 #include <netinet/in.h>
 #include <linux/limits.h>
+#include <linux/tcp.h>
 
 #include "common.h"
 #include "list.h"

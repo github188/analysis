@@ -81,7 +81,7 @@ typedef intptr_t handle_t;
                     ? (b) \
                     : (((((b) - (a)) * ((a) - (c))) > 0) ? a : c)\
             )
-#define MIN(a, b)               (((a) > (b)) ? (b) : (a))
+#define MIN(a, b)               (((a) < (b)) ? (a) : (b))
 
 #define DO_NOTHING()            do {} while (0)
 
