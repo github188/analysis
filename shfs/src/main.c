@@ -1065,12 +1065,26 @@ int main(int argc, char *argv[])
     return 0;
 #else
     str_t path_root = {NULL};
+    struct stat root_stat = {};
 
     if (1 == argc) {
         fprintf(stderr, "usage: shfs filename\n");
 
         return 0;
     }
+
+    if (-1 == stat(argv[1], &root_stat)) {
+        ts_perror("path dose NOT exist", errno);
+
+        return -1;
+    }
+
+    if (!S_ISDIR(root_stat.st_mode)) {
+        fprintf(stderr, "[ERROR] path is NOT a directory!\n");
+
+        return -1;
+    }
+
     path_root.mp_data = argv[1];
     path_root.m_len = strlen(argv[1]);
 
