@@ -121,6 +121,8 @@ static int handle_accept(int lsn_fd, client_t *p_clt)
                       (struct sockaddr *)&p_clt->m_clt_addr,
                       &addrlen);
         accept_errno = errno;
+        errno = 0;
+
         if (rslt > 0) {
             break;
         } else if (-1 == rslt) {
@@ -213,6 +215,7 @@ static int send_buf(int fd, buf_t *p_buf)
                          ntow,
                          0);
         sent_errno = errno;
+        errno = 0;
 
         if (sent_size > 0) {
             p_buf->m_seek += sent_size;
@@ -636,6 +639,8 @@ static void handle_disconnection(context_t *p_context,
 {
     ASSERT(NULL != p_context);
 
+    fprintf(stderr, "handle_disconnection %d\n", p_clt->m_cmnct_fd);
+
     // 断开连接
     if (close_wait) { // 被动断开
         if (-1 == shutdown(p_clt->m_cmnct_fd, SHUT_RDWR)) {
@@ -705,6 +710,8 @@ static void handle_data_input(context_t *p_context, client_t *p_clt)
                            p_recv_buf->m_capacity - p_recv_buf->m_size - 1,
                            0);
         recv_errno = errno;
+        errno = 0;
+
         if (recved_size > 0) {
             p_recv_buf->m_size += recved_size;
 
@@ -797,7 +804,10 @@ static void handle_write_events(context_t *p_context,
                 break;
             }
         }
-
+        
+        if (NULL == p_clt) { // 连接已断开，资源也已释放
+            break;
+        }
         handle_http_resp(p_clt);
     }
 
@@ -903,8 +913,6 @@ static int init_lsn_fd(int lsn_fd)
                          &reuseaddr,
                          sizeof(reuseaddr)))
     {
-        ts_perror("reuse addr failed", errno);
-
         return -1;
     }
 
@@ -952,6 +960,10 @@ int build_context(context_t *p_context, str_t const PATH_ROOT)
     struct rlimit rlmt = {0};
     client_t *p_client_cache = NULL;
     list_t *p_free_clients = NULL;
+    // sigset_t set = {};
+
+    // 初始化信号处理
+
 
     // 创建监听套接字
     lsn_fd = socket(AF_INET, SOCK_STREAM, 0);
