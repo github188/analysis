@@ -41,21 +41,27 @@ int offset_to_str(off_t value, str_t *p_target, int n)
     ASSERT(NULL != p_target->mp_data);
 
     if (value < 0) {
-        return -1;
-    }
+        real_len = -1;
+    } else if (0 == value) {
+        p_target->mp_data[0] = '0';
+        p_target->mp_data[1] = 0x00;
+        p_target->m_len = 1;
 
-    p_target->m_len = 0;
-    ASSERT(0 == real_len);
-    while ((0 != value_tmp) && (p_target->m_len < n)) {
-        off_t next_value = value_tmp / 10;
+        real_len = 1;
+    } else {
+        p_target->m_len = 0;
+        ASSERT(0 == real_len);
+        while ((0 != value_tmp) && (p_target->m_len < n)) {
+            off_t next_value = value_tmp / 10;
 
-        p_target->mp_data[p_target->m_len++]
-            = value_tmp - next_value * 10 + '0';
-        value_tmp = next_value;
-        ++real_len;
+            p_target->mp_data[p_target->m_len++]
+                = value_tmp - next_value * 10 + '0';
+            value_tmp = next_value;
+            ++real_len;
+        }
+        reverse_str(p_target);
+        p_target->m_len = MIN(n, real_len);
     }
-    reverse_str(p_target);
-    p_target->m_len = MIN(n, real_len);
 
     return real_len;
 }
