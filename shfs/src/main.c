@@ -639,8 +639,6 @@ static void handle_disconnection(context_t *p_context,
 {
     ASSERT(NULL != p_context);
 
-    fprintf(stderr, "handle_disconnection %d\n", p_clt->m_cmnct_fd);
-
     // 断开连接
     if (close_wait) { // 被动断开
         if (-1 == shutdown(p_clt->m_cmnct_fd, SHUT_RDWR)) {
