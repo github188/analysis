@@ -719,8 +719,7 @@ static void handle_data_input(context_t *p_context, client_t *p_clt)
         } else if ((-1 == recved_size) && (EAGAIN == recv_errno)) {
             int requ_rslt = 0;
 
-            ASSERT(0x00 == p_recv_buf->mp_data[p_recv_buf->m_size]);
-
+            p_recv_buf->mp_data[p_recv_buf->m_size] = 0x00;
             requ_rslt = handle_http_requ(p_context, p_clt);
             if (0 == requ_rslt) {
                 // 清空接收缓冲
@@ -798,13 +797,15 @@ static void handle_write_events(context_t *p_context,
              NULL != p_iter;
              p_iter = (list_t *)*p_iter)
         {
-            p_clt = CONTAINER_OF(p_iter, client_t, m_node);
+            client_t *p_clt_tmp = CONTAINER_OF(p_iter, client_t, m_node);
 
-            if (fd == p_clt->m_cmnct_fd) {
+            if (fd == p_clt_tmp->m_cmnct_fd) {
+                p_clt = p_clt_tmp;
+
                 break;
             }
         }
-        
+
         if (NULL == p_clt) { // 连接已断开，资源也已释放
             break;
         }

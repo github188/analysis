@@ -37,7 +37,6 @@ void clean_buf(buf_t *const THIS)
 {
     ASSERT(NULL != THIS);
 
-    (void)memset(THIS->mp_data, 0, THIS->m_capacity);
     THIS->m_seek = 0;
     THIS->m_size = 0;
 
@@ -74,11 +73,9 @@ int doublesize_buf(buf_t *const THIS, int n)
         return -1;
     }
 
-    (void)memset(&p_tmp[0], 0, tmp_size);
     if (NULL != THIS->mp_data) {
         (void)memcpy(&p_tmp[0], &THIS->mp_data[0], THIS->m_size);
 
-        fprintf(stderr, "%s %d free %p\n", __FILE__, __LINE__, THIS->mp_data);
         free(THIS->mp_data);
     }
     THIS->mp_data = p_tmp;
@@ -92,7 +89,6 @@ void destroy_buf(buf_t *const THIS)
 {
     ASSERT(NULL != THIS);
 
-    fprintf(stderr, "free %p\n", THIS->mp_data);
     free(THIS->mp_data);
     THIS->mp_data = NULL;
     THIS->m_size = 0;
