@@ -3,9 +3,53 @@ digraph nginx {
         shape = "record",
     ];
 
+    rankdir = LR;
+
+    // ngx_cached_time
+    n_ngx_cached_time [label = "ngx_time_t : *ngx_cached_time"];
+
+    // cached_time[64]
     subgraph cluster_cached_time_array {
         label = "ngx_time_t : cached_time[64]";
+        
+        n_cached_time_array [label = "<0>cached_time[0] | \
+                                         <f>... | \
+                                         <slot>cached_time[slot] | \
+                                         <b>... | \
+                                         <63>cached_time[63]"];
+        n_cached_time_ngx_time_t [label = "<sec>time_t : sec | \
+                                           <msec>ngx_uint_t : msec | \
+                                           <gmtoff>ngx_int_t : gmtoff"];
 
-        node_xxx;
+        n_cached_time_array:slot -> n_cached_time_ngx_time_t:sec;
+        n_cached_time_array:slot -> n_cached_time_ngx_time_t:gmtoff;
     };
+
+    // ngx_log_file
+    subgraph cluster_ngx_log_file {
+        label = "ngx_open_file_t : ngx_log_file";
+
+        n_ngx_log_file [label = "<fd>ngx_fd_t : fd | \
+                                 <name>ngx_str_t : name | \
+                                 <buffer>u_char : *buffer | \
+                                 <pos>u_char : *pos | \
+                                 <last>u_char : *last"];
+    };
+
+    // ngx_log
+    subgraph cluster_ngx_log {
+        label = "ngx_lot_t : ngx_log";
+
+        n_ngx_log [label = "<log_level>ngx_uint_t : log_level | \
+                            <file>ngx_open_file_t : *file | \
+                            <connection>ngx_atomic_uint_t : connection | \
+                            <handler>ngx_log_handler_pt : handler | \
+                            <data>void : *data | \
+                            <action>char : *action"];
+    };
+
+    // ********** relationship **********
+    n_ngx_cached_time -> n_cached_time_array:slot [style = "dotted"];
+
+    n_ngx_log:file -> n_ngx_log_file:fd [style = "dotted"];
 };
