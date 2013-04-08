@@ -48,8 +48,22 @@ digraph nginx {
                             <action>char : *action"];
     };
 
+    // init_cycle
+    subgraph cluster_init_cycle {
+        label = "ngx_cycle_t : init_cycle";
+
+        n_init_cycle [label = "<conf_ctx>void : ****conf_ctx | \
+                               <pool>ngx_pool_t : *pool | \
+                               <log>ngx_log_t : *log | \
+                               <new_log>ngx_log_t : new_log | \
+                               ... | \
+                               <hostname>ngx_str_t : hostname"];
+    };
+
     // ********** relationship **********
     n_ngx_cached_time -> n_cached_time_array:slot [style = "dotted"];
 
     n_ngx_log:file -> n_ngx_log_file:fd [style = "dotted"];
+
+    n_init_cycle:log -> n_ngx_log:log_level [style = "dotted"];
 };
