@@ -1,0 +1,11 @@
+digraph nginx {
+    node [
+        shape = "record",
+    ];
+
+    subgraph cluster_cached_time_array {
+        label = "ngx_time_t : cached_time[64]";
+
+        node_xxx;
+    };
+};
