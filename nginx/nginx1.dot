@@ -21,8 +21,12 @@ digraph nginx {
                                            <msec>ngx_uint_t : msec | \
                                            <gmtoff>ngx_int_t : gmtoff"];
 
-        n_cached_time_array:slot -> n_cached_time_ngx_time_t:sec;
-        n_cached_time_array:slot -> n_cached_time_ngx_time_t:gmtoff;
+        n_cached_time_array:slot -> n_cached_time_ngx_time_t:sec [
+            style = "dotted",
+        ];
+        n_cached_time_array:slot -> n_cached_time_ngx_time_t:gmtoff [
+            style = "dotted",
+        ];
     };
 
     // ngx_log_file
@@ -48,6 +52,9 @@ digraph nginx {
                             <action>char : *action"];
     };
 
+    // ngx_cycle
+    n_ngx_cycle [label = "ngx_cyle_t : *ngx_cycle"];
+
     // init_cycle
     subgraph cluster_init_cycle {
         label = "ngx_cycle_t : init_cycle";
@@ -60,10 +67,20 @@ digraph nginx {
                                <hostname>ngx_str_t : hostname"];
     };
 
+    // anonymity_cyle
+    n_anonymity_cycle [label = "<conf_ctx>void : ****conf_ctx | \
+                                <pool>ngx_pool_t : *pool | \
+                                <log>ngx_log_t : *log | \
+                                <new_log>ngx_log_t : new_log | \
+                                ... | \
+                                <hostname>ngx_str_t : hostname"];
+
     // ********** relationship **********
-    n_ngx_cached_time -> n_cached_time_array:slot [style = "dotted"];
+    n_ngx_cached_time -> n_cached_time_array:slot;
 
-    n_ngx_log:file -> n_ngx_log_file:fd [style = "dotted"];
+    n_ngx_log:file -> n_ngx_log_file:fd;
 
-    n_init_cycle:log -> n_ngx_log:log_level [style = "dotted"];
+    n_init_cycle:log -> n_ngx_log:log_level;
+    n_ngx_cycle -> n_anonymity_cycle:conf_ctx;
+    n_anonymity_cycle:log -> n_ngx_log:log_level;
 };
