@@ -85,7 +85,8 @@ digraph nginx {
                                          <1>void : *[1] | \
                                          <2>void : *[2] | \
                                          ... | \
-                                         <ngx_max_moule>void : *[ngx_max_module]"];
+                                         <ngx_max_moule>void : \
+                                             *[ngx_max_module]"];
     n_anonymity_cycle_listening [label = "<elts>void : *elts | \
                                           <nelts>ngx_uint_t : nelts | \
                                           <size>size_t : size | \
@@ -96,11 +97,12 @@ digraph nginx {
                                                 <1>ngx_listening_t | \
                                                 ... | \
                                                 <nalloc>ngx_listening_t"];
-    n_anonymity_cycle_listening_array_elmt [label = "<fd>ngx_socket_t : fd | \
-                                                     <sockaddr>struct sockaddr : \
-                                                         sockaddr | \
-                                                     <socklen>socklen_t : socklen | \
-                                                     <end>..."];
+    n_anonymity_cycle_listening_array_elmt [
+        label = "<fd>ngx_socket_t : fd | \
+                 <sockaddr>struct sockaddr :  sockaddr | \
+                 <socklen>socklen_t : socklen | \
+                 <end>..."
+    ];
     n_anonymity_cycle_pathes [label = "<elts>void : *elts | \
                                        <nelts>ngx_uint_t : nelts | \
                                        <size>size_t : size | \
@@ -155,18 +157,46 @@ digraph nginx {
         subgraph cluster_ngx_core_module_ctx {
             label = "ngx_core_module_t : ngx_core_module_ctx";
 
-            n_ngx_core_module_ctx [label = "<name>ngx_str_t : name | \
-                                            <create_conf>void *(*create_conf) | \
-                                                (ngx_cycle_t *) | \
-                                            <init_conf>char *(*init_conf) | \
-                                                (ngx_cycle_t *, void *)"];
+            n_ngx_core_module_ctx [
+                label = "<name>ngx_str_t : name | \
+                         <create_conf>void *(*create_conf)(ngx_cycle_t *) | \
+                         <init_conf>char *(*init_conf)(ngx_cycle_t *, void *)"
+            ];
+        };
+        subgraph cluster_ngx_core_commands {
+            label = "ngx_command_t : ngx_core_commands";
+
+            n_ngx_core_commands [
+                label = "<0>ngx_command_t : [0] | \
+                         <1>ngx_command_t : [1] | \
+                         ... | \
+                         <end>ngx_null_command",
+            ];
+            n_ngx_core_commands_elmt [
+                label = "<name>ngx_str_t : name | \
+                         <type>ngx_uint_t : type | \
+                         <set>char *(*set)(ngx_conf_t *cf, \
+                                           ngx_command_t *cmd, \
+                                           void *conf); | \
+                         <conf>ngx_uint_t : conf | \
+                         <offset>ngx_uint_t : offset | \
+                         <post>void : *post",
+            ];
+            n_ngx_core_commands:0 -> n_ngx_core_commands_elmt:name [
+                style = "dotted",
+            ]
+            n_ngx_core_commands:0 -> n_ngx_core_commands_elmt:post [
+                style = "dotted",
+            ]
         };
         n_ngx_core_module [label = "<ctx_index>ngx_uint_t : ctx_index | \
                                     ... | \
                                     <ctx>void : *ctx | \
+                                    <commands>ngx_command_t : *commands | \
                                     ..."];
 
         n_ngx_core_module:ctx -> n_ngx_core_module_ctx:name;
+        n_ngx_core_module:commands -> n_ngx_core_commands:0;
     };
 
     // conf
@@ -208,4 +238,6 @@ digraph nginx {
     n_ngx_modules:0 -> n_ngx_core_module:ctx_index;
 
     n_conf:args -> n_conf_args:0;
+    n_conf:ctx -> n_anonymity_cycle_conf_ctx:0;
+    n_conf:cycle -> n_anonymity_cycle:conf_ctx;
 };
