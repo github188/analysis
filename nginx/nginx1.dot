@@ -73,7 +73,22 @@ digraph nginx {
                                 <log>ngx_log_t : *log | \
                                 <new_log>ngx_log_t : new_log | \
                                 ... | \
+                                <pathes>ngx_array_t : pathes | \
+                                ... | \
+                                <old_cycle>ngx_cycle_t : *old_cycle | \
+                                ... | \
                                 <hostname>ngx_str_t : hostname"];
+    n_anonymity_cycle_pathes [label = "<elts>void : *elts | \
+                                       <nelts>ngx_uint_t : nelts | \
+                                       <size>size_t : size | \
+                                       <nalloc>ngx_uint_t : nalloc | \
+                                       <pool>ngx_pool_t : *pool"];
+    n_anonymity_cycle:pathes -> n_anonymity_cycle_pathes:elts [
+        style = "dotted",
+    ];
+    n_anonymity_cycle:pathes -> n_anonymity_cycle_pathes:pool [
+        style = "dotted",
+    ];
 
     // ********** relationship **********
     n_ngx_cached_time -> n_cached_time_array:slot;
@@ -83,4 +98,5 @@ digraph nginx {
     n_init_cycle:log -> n_ngx_log:log_level;
     n_ngx_cycle -> n_anonymity_cycle:conf_ctx;
     n_anonymity_cycle:log -> n_ngx_log:log_level;
+    n_anonymity_cycle:old_cycle -> n_init_cycle:conf_ctx;
 };
