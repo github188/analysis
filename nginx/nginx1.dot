@@ -13,10 +13,10 @@ digraph nginx {
         label = "ngx_time_t : cached_time[64]";
         
         n_cached_time_array [label = "<0>cached_time[0] | \
-                                         <f>... | \
-                                         <slot>cached_time[slot] | \
-                                         <b>... | \
-                                         <63>cached_time[63]"];
+                                      <f>... | \
+                                      <slot>cached_time[slot] | \
+                                      <b>... | \
+                                      <63>cached_time[63]"];
         n_cached_time_ngx_time_t [label = "<sec>time_t : sec | \
                                            <msec>ngx_uint_t : msec | \
                                            <gmtoff>ngx_int_t : gmtoff"];
@@ -81,6 +81,11 @@ digraph nginx {
                                 <old_cycle>ngx_cycle_t : *old_cycle | \
                                 ... | \
                                 <hostname>ngx_str_t : hostname"];
+    n_anonymity_cycle_conf_ctx [label = "<0>void : *[0] | \
+                                         <1>void : *[1] | \
+                                         <2>void : *[2] | \
+                                         ... | \
+                                         <ngx_max_moule>void : *[ngx_max_module]"];
     n_anonymity_cycle_listening [label = "<elts>void : *elts | \
                                           <nelts>ngx_uint_t : nelts | \
                                           <size>size_t : size | \
@@ -95,7 +100,7 @@ digraph nginx {
                                                      <sockaddr>struct sockaddr : \
                                                          sockaddr | \
                                                      <socklen>socklen_t : socklen | \
-                                                     ..."];
+                                                     <end>..."];
     n_anonymity_cycle_pathes [label = "<elts>void : *elts | \
                                        <nelts>ngx_uint_t : nelts | \
                                        <size>size_t : size | \
@@ -121,6 +126,70 @@ digraph nginx {
     ];
     n_anonymity_cycle_listening_array:0
         -> n_anonymity_cycle_listening_array_elmt:fd [style = "dotted"];
+    n_anonymity_cycle_listening_array:0
+        -> n_anonymity_cycle_listening_array_elmt:end [style = "dotted"];
+
+    // ngx_modules
+    subgraph cluster_ngx_modules {
+        label = "ngx_module_t : *ngx_modules[]";
+
+        n_ngx_modules [label = "<0>ngx_module_t : *[0] | \
+                                <1>ngx_module_t : *[1] | \
+                                <2>ngx_module_t : *[2] | \
+                                <3>ngx_module_t : *[3] | \
+                                ... | \
+                                <ngx_max_module>ngx_module_t : \
+                                    *[ngx_max_module]"];
+    };
+
+    subgraph cluster_ngx_core_module {
+        label = "ngx_module_t : ngx_core_module";
+
+        subgraph cluster_ngx_core_conf_t {
+            label = "ngx_core_conf_t";
+
+            n_ngx_core_conf [label = "<daemon>ngx_flag_t : daemon | \
+                                      <master>ngx_flag_t : master | \
+                                      <end>..."];
+        };
+        subgraph cluster_ngx_core_module_ctx {
+            label = "ngx_core_module_t : ngx_core_module_ctx";
+
+            n_ngx_core_module_ctx [label = "<name>ngx_str_t : name | \
+                                            <create_conf>void *(*create_conf) | \
+                                                (ngx_cycle_t *) | \
+                                            <init_conf>char *(*init_conf) | \
+                                                (ngx_cycle_t *, void *)"];
+        };
+        n_ngx_core_module [label = "<ctx_index>ngx_uint_t : ctx_index | \
+                                    ... | \
+                                    <ctx>void : *ctx | \
+                                    ..."];
+
+        n_ngx_core_module:ctx -> n_ngx_core_module_ctx:name;
+    };
+
+    // conf
+    subgraph cluster_conf {
+        label = "ngx_conf_t : conf";
+
+        n_conf [label = "<name>char : *name | \
+                         <args>ngx_array_t : *args | \
+                         <cycle>ngx_cycle_t : *cycle | \
+                         <pool>ngx_pool_t : *pool | \
+                         <temp_pool>ngx_pool_t : *temp_pool | \
+                         <conf_file>ngx_conf_file_t : *conf_file | \
+                         <log>ngx_log_t : *log | \
+                         <ctx>void : *ctx | \
+                         <module_type>ngx_uint_t : module_type | \
+                         <handler>ngx_conf_handler_pt : handler | \
+                         <handler_conf>char : *handler_conf"];
+    };
+    n_conf_args [label = "<0>ngx_str_t : [0] | \
+                          <1>ngx_str_t : [1] | \
+                          <2>ngx_str_t : [2] | \
+                          ... | \
+                          <9>ngx_str_t : [9]"];
 
     // ********** relationship **********
     n_ngx_cached_time -> n_cached_time_array:slot;
@@ -129,8 +198,14 @@ digraph nginx {
 
     n_init_cycle:log -> n_ngx_log:log_level;
     n_ngx_cycle -> n_anonymity_cycle:conf_ctx;
+    n_anonymity_cycle:conf_ctx -> n_anonymity_cycle_conf_ctx:0;
+    n_anonymity_cycle_conf_ctx:0 -> n_ngx_core_conf:daemon;
     n_anonymity_cycle:log -> n_ngx_log:log_level;
     n_anonymity_cycle:old_cycle -> n_init_cycle:conf_ctx;
     n_anonymity_cycle_pathes:elts -> n_anonymity_cycle_pathes_array:0;
     n_anonymity_cycle_listening:elts -> n_anonymity_cycle_listening_array:0;
+
+    n_ngx_modules:0 -> n_ngx_core_module:ctx_index;
+
+    n_conf:args -> n_conf_args:0;
 };
