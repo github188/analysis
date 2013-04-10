@@ -356,6 +356,8 @@ digraph nginx {
     n_anonymity_cycle_listening:elts -> n_anonymity_cycle_listening_array:0;
 
     n_conf:args -> n_conf_args:0;
-    n_conf:ctx -> n_anonymity_cycle_conf_ctx:0;
+    n_conf:ctx -> n_anonymity_cycle_conf_ctx:0 [label = "0"];
+    n_conf:ctx -> n_ngx_events_module_ctx:0 [label = "1"];
+    n_conf:ctx -> n_anonymity_cycle_conf_ctx:0 [label = "2"];
     n_conf:cycle -> n_anonymity_cycle:conf_ctx;
 };
