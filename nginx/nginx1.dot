@@ -131,7 +131,7 @@ digraph nginx {
     n_anonymity_cycle_listening_array:0
         -> n_anonymity_cycle_listening_array_elmt:end [style = "dotted"];
 
-    // ngx_modules
+    // ***** ngx_modules {{
     subgraph cluster_ngx_modules {
         label = "ngx_module_t : *ngx_modules[]";
 
@@ -139,11 +139,13 @@ digraph nginx {
                                 <1>ngx_module_t : *[1] | \
                                 <2>ngx_module_t : *[2] | \
                                 <3>ngx_module_t : *[3] | \
+                                <4>ngx_module_t : *[4] | \
                                 ... | \
                                 <ngx_max_module>ngx_module_t : \
                                     *[ngx_max_module]"];
     };
 
+    // ngx_core_module
     subgraph cluster_ngx_core_module {
         label = "ngx_module_t : ngx_core_module";
 
@@ -199,6 +201,51 @@ digraph nginx {
         n_ngx_core_module:commands -> n_ngx_core_commands:0;
     };
 
+    // ngx_events_module
+    subgraph cluster_ngx_events_module {
+        label = "ngx_module_t : ngx_events_module";
+
+        n_ngx_events_module [label = "<ctx_index>ngx_uint_t : ctx_index | \
+                                     ... | \
+                                     <ctx>void : *ctx | \
+                                     <commands>ngx_command_t : *commands | \
+                                     ..."];
+        n_ngx_events_module_ctx [
+            label = "<0>void : *[0] | \
+                     ... | \
+                     <ngx_event_max_module>void : *[ngx_event_max_module]"
+        ];
+
+        n_ngx_events_module:ctx -> n_ngx_events_module_ctx:0;
+    };
+
+    // ngx_event_core_module
+    subgraph cluster_ngx_event_core_module {
+        label = "ngx_module_t : ngx_event_core_module";
+
+        n_ngx_event_core_module [label = "<ctx_index>ngx_uint_t : ctx_index | \
+                                         ... | \
+                                         <ctx>void : *ctx | \
+                                         <commands>ngx_command_t : *commands | \
+                                         ..."];
+        subgraph cluster_ngx_event_module_ctx {
+            n_ngx_event_core_module_ctx [
+                label = "<name>ngx_str_t : *name | \
+                         <create_conf>void *(*create_conf)(ngx_cycle_t *cycle) | \
+                         <init_conf> | \
+                         <actions>ngx_event_actions_t : actions"
+            ];
+        };
+
+        n_ngx_event_core_module:ctx -> n_ngx_event_core_module_ctx:name;
+    };
+
+    n_ngx_modules:0 -> n_ngx_core_module:ctx_index;
+    n_ngx_modules:3 -> n_ngx_events_module:ctx_index;
+    n_ngx_modules:4 -> n_ngx_event_core_module:ctx_index;
+
+    // }} ngx_modules *****
+
     // conf
     subgraph cluster_conf {
         label = "ngx_conf_t : conf";
@@ -234,8 +281,6 @@ digraph nginx {
     n_anonymity_cycle:old_cycle -> n_init_cycle:conf_ctx;
     n_anonymity_cycle_pathes:elts -> n_anonymity_cycle_pathes_array:0;
     n_anonymity_cycle_listening:elts -> n_anonymity_cycle_listening_array:0;
-
-    n_ngx_modules:0 -> n_ngx_core_module:ctx_index;
 
     n_conf:args -> n_conf_args:0;
     n_conf:ctx -> n_anonymity_cycle_conf_ctx:0;
