@@ -34,7 +34,7 @@ digraph nginx {
         label = "ngx_open_file_t : ngx_log_file";
 
         n_ngx_log_file [label = "<fd>ngx_fd_t : fd | \
-                                 <name>ngx_str_t : name | \
+                                 <namex>ngx_str_t : namex | \
                                  <buffer>u_char : *buffer | \
                                  <pos>u_char : *pos | \
                                  <last>u_char : *last"];
@@ -87,6 +87,7 @@ digraph nginx {
                                          <3>void : *[3] | \
                                          <4>void : *[4] | \
                                          <5>void : *[5] | \
+                                         <6>void : *[6] | \
                                          ... | \
                                          <ngx_max_moule>void : \
                                              *[ngx_max_module]"];
@@ -144,6 +145,7 @@ digraph nginx {
                                 <3>ngx_module_t : *[3] | \
                                 <4>ngx_module_t : *[4] | \
                                 <5>ngx_module_t : *[5] | \
+                                <6>ngx_module_t : *[6] | \
                                 ... | \
                                 <ngx_max_module>ngx_module_t : \
                                     *[ngx_max_module]"];
@@ -327,6 +329,84 @@ digraph nginx {
         n_ngx_epoll_module:ctx -> n_ngx_epoll_module_ctx:name;
     };
 
+    // ngx_http_module
+    subgraph cluster_ngx_http_module {
+        label = "ngx_module_t : ngx_http_module";
+
+        n_ngx_http_module [
+            label = "<ctx_index>ngx_uint_t : ctx_index | \
+                     ... | \
+                     <ctx>void : *ctx | \
+                     <commands>ngx_command_t : *commands | \
+                     ...",
+        ];
+        subgraph cluster_ngx_http_module_ctx {
+            label = "ngx_core_module_t : ngx_http_module_ctx";
+
+            n_ngx_http_module_ctx [
+                label = "<namex>ngx_str_t : namex | \
+                         <create_conf>void \
+                             *(*create_conf)(ngx_cycle_t *cycle) | \
+                         <init_conf> | \
+                         <actions>ngx_event_actions_t : actions",
+            ];
+        };
+        subgraph cluster_ngx_http_conf_ctx_t {
+            label = "ngx_http_conf_ctx";
+
+            n_ngx_http_conf_ctx [
+                label = "<main_conf>void : **main_conf | \
+                         <srv_conf>void : **srv_conf | \
+                         <loc_conf>void : **loc_conf",
+            ];
+            n_ngx_http_conf_ctx_main_conf_array [
+                label = "<0>void : *[0] | \
+                         <1>void : *[1] | \
+                         <2>void : *[2] | \
+                         <3>void : *[3] | \
+                         <4>void : *[4] | \
+                         <5>void : *[5] | \
+                         <6>void : *[6] | \
+                         ... | \
+                         <ngx_http_max_module - 1>void : \
+                             *[ngx_http_max_module-1]",
+            ];
+            n_ngx_http_conf_ctx_srv_conf_array [
+                label = "<0>void : *[0] | \
+                         <1>void : *[1] | \
+                         <2>void : *[2] | \
+                         <3>void : *[3] | \
+                         <4>void : *[4] | \
+                         <5>void : *[5] | \
+                         <6>void : *[6] | \
+                         ... | \
+                         <ngx_http_max_module - 1>void : \
+                             *[ngx_http_max_module-1]",
+            ];
+            n_ngx_http_conf_ctx_loc_conf_array [
+                label = "<0>void : *[0] | \
+                         <1>void : *[1] | \
+                         <2>void : *[2] | \
+                         <3>void : *[3] | \
+                         <4>void : *[4] | \
+                         <5>void : *[5] | \
+                         <6>void : *[6] | \
+                         ... | \
+                         <ngx_http_max_module - 1>void : \
+                             *[ngx_http_max_module-1]",
+            ];
+
+            n_ngx_http_conf_ctx:main_conf -> \
+                n_ngx_http_conf_ctx_main_conf_array:0;
+            n_ngx_http_conf_ctx:srv_conf -> \
+                n_ngx_http_conf_ctx_srv_conf_array:0;
+            n_ngx_http_conf_ctx:loc_conf -> \
+                n_ngx_http_conf_ctx_loc_conf_array:0;
+        };
+
+        n_ngx_http_module:ctx -> n_ngx_http_module_ctx:namex;
+    };
+
     n_ngx_events_module_ctx_array:0 -> n_ngx_event_conf:connections;
     n_ngx_events_module_ctx_array:1 -> n_ngx_epoll_conf:events;
 
@@ -334,6 +414,7 @@ digraph nginx {
     n_ngx_modules:3 -> n_ngx_events_module:ctx_index;
     n_ngx_modules:4 -> n_ngx_event_core_module:ctx_index;
     n_ngx_modules:5 -> n_ngx_epoll_module:ctx_index;
+    n_ngx_modules:6 -> n_ngx_http_module:ctx_index;
 
     // }} ngx_modules *****
 
@@ -365,10 +446,12 @@ digraph nginx {
     n_ngx_log:file -> n_ngx_log_file:fd;
 
     n_init_cycle:log -> n_ngx_log:log_level;
-    n_ngx_cycle -> n_anonymity_cycle:conf_ctx;
+    n_ngx_cycle -> n_init_cycle:conf_ctx [label = "0"];
+    n_ngx_cycle -> n_anonymity_cycle:conf_ctx [label = "1"];
     n_anonymity_cycle:conf_ctx -> n_anonymity_cycle_conf_ctx:0;
     n_anonymity_cycle_conf_ctx:0 -> n_ngx_core_conf:daemon;
     n_anonymity_cycle_conf_ctx:3 -> n_ngx_events_module_ctx_ptr;
+    n_anonymity_cycle_conf_ctx:6 -> n_ngx_http_conf_ctx:main_conf;
     n_anonymity_cycle:log -> n_ngx_log:log_level;
     n_anonymity_cycle:old_cycle -> n_init_cycle:conf_ctx;
     n_anonymity_cycle_pathes:elts -> n_anonymity_cycle_pathes_array:0;
@@ -376,5 +459,7 @@ digraph nginx {
 
     n_conf:args -> n_conf_args:0;
     n_conf:ctx -> n_anonymity_cycle_conf_ctx:0 [label = "0"];
+    n_conf:ctx -> n_ngx_events_module_ctx_ptr [label = "1"];
+    n_conf:ctx -> n_anonymity_cycle_conf_ctx:0 [label = "2"];
     n_conf:cycle -> n_anonymity_cycle:conf_ctx;
 };
