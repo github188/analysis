@@ -11,7 +11,7 @@ digraph nginx {
     // cached_time[64]
     subgraph cluster_cached_time_array {
         label = "ngx_time_t : cached_time[64]";
-        
+
         n_cached_time_array [label = "<0>cached_time[0] | \
                                       <f>... | \
                                       <slot>cached_time[slot] | \
@@ -396,12 +396,12 @@ digraph nginx {
                              *[ngx_http_max_module-1]",
             ];
 
-            n_ngx_http_conf_ctx:main_conf -> \
-                n_ngx_http_conf_ctx_main_conf_array:0;
-            n_ngx_http_conf_ctx:srv_conf -> \
-                n_ngx_http_conf_ctx_srv_conf_array:0;
-            n_ngx_http_conf_ctx:loc_conf -> \
-                n_ngx_http_conf_ctx_loc_conf_array:0;
+            n_ngx_http_conf_ctx:main_conf
+                -> n_ngx_http_conf_ctx_main_conf_array:0;
+            n_ngx_http_conf_ctx:srv_conf
+                -> n_ngx_http_conf_ctx_srv_conf_array:0;
+            n_ngx_http_conf_ctx:loc_conf
+                -> n_ngx_http_conf_ctx_loc_conf_array:0;
         };
 
         n_ngx_http_module:ctx -> n_ngx_http_module_ctx:namex;
@@ -462,4 +462,4 @@ digraph nginx {
     n_conf:ctx -> n_ngx_events_module_ctx_ptr [label = "1"];
     n_conf:ctx -> n_anonymity_cycle_conf_ctx:0 [label = "2"];
     n_conf:cycle -> n_anonymity_cycle:conf_ctx;
-};
+}

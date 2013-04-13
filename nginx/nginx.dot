@@ -146,7 +146,7 @@ digraph nginx {
                  <3>void * | \
                  <4>void * | \
                  <n>...",
-    ];    
+    ];
 
     subgraph cluster_ngx_cycle_t {
         label = "ngx_cycle_t";
@@ -231,7 +231,7 @@ digraph nginx {
                                        <next>ngx_pool_t : *next | \
                                        <failed>ngx_uint_t : failed"];
     };
-    
+
     node_ngx_sys_errlist [label = "ngx_str_t : *ngx_sys_errlist"];
     node_ngx_str_ts [label = "<1>ngx_str_t | \
                               <2>ngx_str_t | \
@@ -335,4 +335,4 @@ digraph nginx {
         fontcolor = "purple",
     ];
     node_ngx_pool_t:current -> node_ngx_pool_t:d;
-};
+}
