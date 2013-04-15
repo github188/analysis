@@ -4,6 +4,7 @@ digraph nginx {
     ];
 
     rankdir = LR;
+    ranksep = 1.6;
 
     // ngx_cached_time
     n_ngx_cached_time [label = "ngx_time_t : *ngx_cached_time"];
@@ -146,6 +147,10 @@ digraph nginx {
                                 <4>ngx_module_t : *[4] | \
                                 <5>ngx_module_t : *[5] | \
                                 <6>ngx_module_t : *[6] | \
+                                <7>ngx_module_t : *[7] | \
+                                <8>ngx_module_t : *[8] | \
+                                <9>ngx_module_t : *[9] | \
+                                <10>ngx_module_t : *[10] | \
                                 ... | \
                                 <ngx_max_module>ngx_module_t : \
                                     *[ngx_max_module]"];
@@ -197,11 +202,14 @@ digraph nginx {
                 style = "dotted",
             ]
         };
-        n_ngx_core_module [label = "<ctx_index>ngx_uint_t : ctx_index | \
-                                    ... | \
-                                    <ctx>void : *ctx | \
-                                    <commands>ngx_command_t : *commands | \
-                                    ..."];
+        n_ngx_core_module [
+            label = "<ctx_index>ngx_uint_t : ctx_index | \
+                     ... | \
+                     <ctx>void : *ctx | \
+                     <commands>ngx_command_t : *commands | \
+                     ...",
+            color = "red",
+        ];
 
         n_ngx_core_module:ctx -> n_ngx_core_module_ctx:namex;
         n_ngx_core_module:commands -> n_ngx_core_commands:0;
@@ -211,11 +219,14 @@ digraph nginx {
     subgraph cluster_ngx_events_module {
         label = "ngx_module_t : ngx_events_module";
 
-        n_ngx_events_module [label = "<ctx_index>ngx_uint_t : ctx_index | \
-                                     ... | \
-                                     <ctx>void : *ctx | \
-                                     <commands>ngx_command_t : *commands | \
-                                     ..."];
+        n_ngx_events_module [
+            label = "<ctx_index>ngx_uint_t : ctx_index | \
+                     ... | \
+                     <ctx>void : *ctx | \
+                     <commands>ngx_command_t : *commands | \
+                     ...",
+            color = "red",
+        ];
         subgraph cluster_ngx_events_module_ctx {
             label = "ngx_core_module_t : ngx_events_module_ctx";
 
@@ -251,6 +262,7 @@ digraph nginx {
                      <ctx>void : *ctx | \
                      <commands>ngx_command_t : *commands | \
                      ...",
+            color = "red",
         ];
         subgraph cluster_ngx_event_module_ctx {
             label = "ngx_event_module_t : ngx_event_core_module_ctx";
@@ -286,6 +298,7 @@ digraph nginx {
                      <ctx>void : *ctx | \
                      <commands>ngx_command_t : *commands | \
                      ...",
+            color = "red",
         ];
         subgraph cluster_ngx_epoll_ctx {
             label = "ngx_event_module_t : ngx_epoll_module_ctx";
@@ -339,6 +352,7 @@ digraph nginx {
                      <ctx>void : *ctx | \
                      <commands>ngx_command_t : *commands | \
                      ...",
+            color = "red",
         ];
         subgraph cluster_ngx_http_module_ctx {
             label = "ngx_core_module_t : ngx_http_module_ctx";
@@ -407,6 +421,50 @@ digraph nginx {
         n_ngx_http_module:ctx -> n_ngx_http_module_ctx:namex;
     };
 
+    // ngx_http_core_module
+    subgraph cluster_ngx_http_core_module {
+        label = "ngx_module_t : ngx_http_core_module";
+
+        n_ngx_http_core_module [
+            label = "<ctx_index>ngx_uint_t : ctx_index | \
+                     ... | \
+                     <ctx>void : *ctx | \
+                     <commands>ngx_command_t : *commands | \
+                     ...",
+            color = "red",
+        ];
+        subgraph cluster_ngx_http_core_module_ctx {
+            label = "ngx_http_module_t : ngx_http_core_module_ctx";
+
+            n_ngx_http_core_module_ctx [
+                label = "<preconfiguration>ngx_int_t \
+                             (*preconfiguration)(ngx_conf_t *cf) | \
+                         <postconfiguration>ngx_int_t \
+                             (*postconfiguration)(ngx_conf_t *cf) | \
+                         <create_main_conf>void \
+                             *(*create_main_conf)(ngx_conf_t *cf) | \
+                         <init_main_conf>char \
+                             *(*init_main_conf)(ngx_conf_t *cf, \
+                                                void *conf) | \
+                         <create_srv_conf>void \
+                             *(*create_srv_conf)(ngx_conf_t *cf) | \
+                         <merge_srv_conf>char \
+                             *(*merge_srv_conf)(ngx_conf_t *cf, \
+                                                void *prev, \
+                                                void *conf) | \
+                         <create_loc_conf>void \
+                             *(*create_loc_conf)(ngx_conf_t *cf) | \
+                         <merge_loc_conf>char \
+                             *(*merge_loc_conf)(ngx_conf_t *cf, \
+                                                void *prev, \
+                                                void *conf)",
+            ];
+        };
+
+        n_ngx_http_core_module:ctx
+            -> n_ngx_http_core_module_ctx:preconfiguration;
+    };
+
     n_ngx_events_module_ctx_array:0 -> n_ngx_event_conf:connections;
     n_ngx_events_module_ctx_array:1 -> n_ngx_epoll_conf:events;
 
@@ -415,6 +473,7 @@ digraph nginx {
     n_ngx_modules:4 -> n_ngx_event_core_module:ctx_index;
     n_ngx_modules:5 -> n_ngx_epoll_module:ctx_index;
     n_ngx_modules:6 -> n_ngx_http_module:ctx_index;
+    n_ngx_modules:7 -> n_ngx_http_core_module:ctx_index;
 
     // }} ngx_modules *****
 
