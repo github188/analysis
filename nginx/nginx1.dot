@@ -365,13 +365,14 @@ digraph nginx {
                          <actions>ngx_event_actions_t : actions",
             ];
         };
-        subgraph cluster_ngx_http_conf_ctx_t {
-            label = "ngx_http_conf_ctx";
+        subgraph cluster_ngx_http_conf_ctx {
+            label = "ngx_http_conf_ctx_t";
 
             n_ngx_http_conf_ctx [
                 label = "<main_conf>void : **main_conf | \
                          <srv_conf>void : **srv_conf | \
                          <loc_conf>void : **loc_conf",
+                color = "red",
             ];
             n_ngx_http_conf_ctx_main_conf_array [
                 label = "<0>void : *[0] | \
@@ -596,5 +597,7 @@ digraph nginx {
     n_conf:ctx -> n_anonymity_cycle_conf_ctx:0 [label = "0"];
     n_conf:ctx -> n_ngx_events_module_ctx_ptr [label = "1"];
     n_conf:ctx -> n_anonymity_cycle_conf_ctx:0 [label = "2"];
+    n_conf:ctx -> n_ngx_http_conf_ctx:main_conf [label = "3"];
+    n_conf:ctx -> n_anonymity_cycle_conf_ctx:0 [label = "4"];
     n_conf:cycle -> n_anonymity_cycle:conf_ctx;
 }
