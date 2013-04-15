@@ -35,7 +35,7 @@ digraph nginx {
         label = "ngx_open_file_t : ngx_log_file";
 
         n_ngx_log_file [label = "<fd>ngx_fd_t : fd | \
-                                 <namex>ngx_str_t : namex | \
+                                 <_name>ngx_str_t : name | \
                                  <buffer>u_char : *buffer | \
                                  <pos>u_char : *pos | \
                                  <last>u_char : *last"];
@@ -171,7 +171,7 @@ digraph nginx {
             label = "ngx_core_module_t : ngx_core_module_ctx";
 
             n_ngx_core_module_ctx [
-                label = "<namex>ngx_str_t : namex | \
+                label = "<_name>ngx_str_t : name | \
                          <create_conf>void *(*create_conf)(ngx_cycle_t *) | \
                          <init_conf>char *(*init_conf)(ngx_cycle_t *, void *)"
             ];
@@ -186,7 +186,7 @@ digraph nginx {
                          <end>ngx_null_command",
             ];
             n_ngx_core_commands_elmt [
-                label = "<namex>ngx_str_t : name | \
+                label = "<name>ngx_str_t : _name | \
                          <type>ngx_uint_t : type | \
                          <set>char *(*set)(ngx_conf_t *cf, \
                                            ngx_command_t *cmd, \
@@ -195,7 +195,7 @@ digraph nginx {
                          <offset>ngx_uint_t : offset | \
                          <post>void : *post",
             ];
-            n_ngx_core_commands:0 -> n_ngx_core_commands_elmt:namex [
+            n_ngx_core_commands:0 -> n_ngx_core_commands_elmt:_name [
                 style = "dotted",
             ]
             n_ngx_core_commands:0 -> n_ngx_core_commands_elmt:post [
@@ -211,7 +211,7 @@ digraph nginx {
             color = "red",
         ];
 
-        n_ngx_core_module:ctx -> n_ngx_core_module_ctx:namex;
+        n_ngx_core_module:ctx -> n_ngx_core_module_ctx:_name;
         n_ngx_core_module:commands -> n_ngx_core_commands:0;
     };
 
@@ -231,7 +231,7 @@ digraph nginx {
             label = "ngx_core_module_t : ngx_events_module_ctx";
 
             n_ngx_events_module_ctx [
-                label = "<namex>ngx_str_t : name | \
+                label = "<_name>ngx_str_t : name | \
                          <create_conf>void \
                              *(*create_conf)(ngx_cycle_t *cycle) | \
                          <init_conf>char *(*init_conf)(ngx_cycle_t *cycle, \
@@ -249,7 +249,7 @@ digraph nginx {
         ];
 
         n_ngx_events_module_ctx_ptr -> n_ngx_events_module_ctx_array:0;
-        n_ngx_events_module:ctx -> n_ngx_events_module_ctx:namex;
+        n_ngx_events_module:ctx -> n_ngx_events_module_ctx:_name;
     };
 
     // ngx_event_core_module
@@ -358,7 +358,7 @@ digraph nginx {
             label = "ngx_core_module_t : ngx_http_module_ctx";
 
             n_ngx_http_module_ctx [
-                label = "<namex>ngx_str_t : namex | \
+                label = "<_name>ngx_str_t : name | \
                          <create_conf>void \
                              *(*create_conf)(ngx_cycle_t *cycle) | \
                          <init_conf> | \
@@ -418,7 +418,7 @@ digraph nginx {
                 -> n_ngx_http_conf_ctx_loc_conf_array:0;
         };
 
-        n_ngx_http_module:ctx -> n_ngx_http_module_ctx:namex;
+        n_ngx_http_module:ctx -> n_ngx_http_module_ctx:_name;
     };
 
     // ngx_http_core_module
@@ -459,6 +459,82 @@ digraph nginx {
                                                 void *prev, \
                                                 void *conf)",
             ];
+            n_ngx_http_core_module_ctx:preconfiguration
+                -> ngx_http_core_preconfiguration;
+            n_ngx_http_core_module_ctx:create_main_conf
+                -> ngx_http_core_create_main_conf;
+            n_ngx_http_core_module_ctx:init_main_conf
+                -> ngx_http_core_init_main_conf;
+            n_ngx_http_core_module_ctx:create_srv_conf
+                -> ngx_http_core_create_srv_conf;
+            n_ngx_http_core_module_ctx:merge_srv_conf
+                -> ngx_http_core_merge_srv_conf;
+            n_ngx_http_core_module_ctx:create_loc_conf
+                -> ngx_http_core_create_loc_conf;
+            n_ngx_http_core_module_ctx:merge_loc_conf
+                -> ngx_http_core_merge_loc_conf;
+        };
+        subgraph cluster_ngx_http_core_main_conf {
+            label = "ngx_http_core_main_conf_t";
+
+            n_ngx_http_core_main_conf [
+                label = "<servers>ngx_array_t : servers | \
+                         <phase_engine>ngx_http_phase_engine_t \
+                             : phase_engine | \
+                         <headers_in_hash>ngx_hash_t : headers_in_hash | \
+                         <variables_hash>ngx_hash_t : variables_hash | \
+                         <variables>ngx_array_t : variables | \
+                         ... | \
+                         <phases>ngx_http_phase_t \
+                             : phases[NGX_HTTP_LOG_PHASE + 1]",
+            ];
+
+            n_ngx_http_core_main_conf_servers [
+                label = "<0>ngx_http_core_srv_conf_t : *[0] | \
+                         <1>ngx_http_core_srv_conf_t : *[1] | \
+                         <2>ngx_http_core_srv_conf_t : *[2] | \
+                         <3>ngx_http_core_srv_conf_t : *[3]",
+            ];
+
+            n_ngx_http_core_main_conf:servers
+                -> n_ngx_http_core_main_conf_servers:0;
+            n_ngx_http_conf_ctx_main_conf_array:0
+                -> n_ngx_http_core_main_conf:servers;
+        };
+        subgraph cluster_ngx_http_core_srv_conf {
+            label = "ngx_http_core_srv_conf_t";
+
+            n_ngx_http_core_srv_conf [
+                label = "<server_names>ngx_array_t : server_names | \
+                         <ctx>ngx_http_conf_ctx_t : *ctx | \
+                         <server_name>ngx_str_t : server_name | \
+                         ... | \
+                         <named_locations>ngx_http_core_loc_conf_t \
+                             : **named_locations",
+            ];
+            n_ngx_http_core_srv_conf_server_names [
+                label = "<0>ngx_http_server_name_t : [0] | \
+                         <1>ngx_http_server_name_t : [1] | \
+                         <2>ngx_http_server_name_t : [2] | \
+                         <3>ngx_http_server_name_t : [3]",
+            ];
+
+            n_ngx_http_core_srv_conf:server_names
+                -> n_ngx_http_core_srv_conf_server_names:0;
+            n_ngx_http_conf_ctx_srv_conf_array:0
+                -> n_ngx_http_core_srv_conf:server_names;
+        };
+        subgraph cluster_ngx_http_core_loc_conf {
+            label = "ngx_http_core_loc_conf_t";
+
+            n_ngx_http_core_loc_conf [
+                label = "<_name>ngx_str_t name | \
+                         ...",
+
+            ];
+
+            n_ngx_http_conf_ctx_loc_conf_array:0
+                -> n_ngx_http_core_loc_conf:_name;
         };
 
         n_ngx_http_core_module:ctx
@@ -481,7 +557,7 @@ digraph nginx {
     subgraph cluster_conf {
         label = "ngx_conf_t : conf";
 
-        n_conf [label = "<name>char : *name | \
+        n_conf [label = "<_name>char : *name | \
                          <args>ngx_array_t : *args | \
                          <cycle>ngx_cycle_t : *cycle | \
                          <pool>ngx_pool_t : *pool | \
