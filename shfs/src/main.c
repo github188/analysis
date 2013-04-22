@@ -2,6 +2,9 @@
 
 
 #define LSN_PORT        8000
+#define PAGE_SIZE       4096
+#define SHM_MODE        0600
+#define IPC_KEY         0xE78F8A
 
 #define NODELAY         TRUE
 #define REUSEADDR       TRUE
@@ -107,6 +110,44 @@ typedef struct {
     list_t m_node;
 } client_t;
 
+static void ts_perror(char const *pc_msg, int error_no);
+
+static uint32_t atomic_cmp_set(uint32_t *lock, uint32_t old, uint32_t set)  
+{  
+    uint8_t rslt = 0;  
+  
+    __asm__ __volatile__ ("lock;"
+                          "cmpxchgl %3, %1;"
+                          "sete %0;"
+                          : "=a" (rslt)
+                          : "m" (*lock), "a" (old), "r" (set)
+                          : "cc", "memory");
+  
+    return rslt;  
+}
+
+static int accept_trylock(void)
+{
+    uint32_t *p_lock = (uint32_t *)((char *)shmat(IPC_PRIVATE, 0, 0) + 0);
+
+    if (NULL == p_lock) {
+        return -1;
+    }
+
+    return atomic_cmp_set(p_lock, 0, 1);
+}
+
+static int accept_unlock(void)
+{
+    uint32_t *p_lock = (uint32_t *)((char *)shmat(IPC_PRIVATE, 0, 0) + 0);
+
+    if (NULL == p_lock) {
+        return -1;
+    }
+
+    return atomic_cmp_set(p_lock, 1, 0);
+}
+
 static int handle_accept(int lsn_fd, client_t *p_clt)
 {
     int rslt = 0;
@@ -117,15 +158,28 @@ static int handle_accept(int lsn_fd, client_t *p_clt)
         int accept_errno = 0;
         socklen_t addrlen = 0;
 
+        if (!accept_trylock()) { // 竞争失败
+            rslt = -1;
+
+            break;
+        }
         rslt = accept(lsn_fd,
                       (struct sockaddr *)&p_clt->m_clt_addr,
                       &addrlen);
+        if (!accept_unlock()) {
+            rslt = -1;
+
+            break;
+        }
+
         accept_errno = errno;
         errno = 0;
 
         if (rslt > 0) {
             break;
         } else if (-1 == rslt) {
+            ts_perror("accept failed", accept_errno);
+
             if ((EAGAIN == accept_errno)
                     || (ENOSYS == accept_errno)
                     || (ECONNABORTED == accept_errno))
@@ -533,7 +587,7 @@ static void handle_http_resp(client_t *p_clt)
     return;
 }
 
-static void ts_perror(char const *pc_msg, int error_no)
+void ts_perror(char const *pc_msg, int error_no)
 {
     char *p_desc = NULL;
     char err_buf[256] = {0x00};
@@ -938,8 +992,13 @@ static int init_lsn_fd(int lsn_fd)
                    (struct sockaddr *)&srv_addr,
                    sizeof(srv_addr)))
     {
+        fprintf(stderr, "[ERROR] [%d]bind failed!\n", getpid());
+
         return -1;
     }
+
+    fork();
+    fork();
 
     // 监听
     if (-1 == listen(lsn_fd, SOMAXCONN)) {
@@ -960,9 +1019,23 @@ int build_context(context_t *p_context, str_t const PATH_ROOT)
     client_t *p_client_cache = NULL;
     list_t *p_free_clients = NULL;
     // sigset_t set = {};
+    void *p_shm = NULL;
 
     // 初始化信号处理
 
+
+    // 创建共享内存
+    if (-1 == shmget(IPC_PRIVATE, PAGE_SIZE, IPC_CREAT | SHM_MODE)) {
+        return -1;
+    }
+    p_shm = shmat(IPC_PRIVATE, 0, 0);
+    if ((NULL == p_shm) || ((void *)(~0) == p_shm)) {
+        return -1;
+    }
+    (void)memset(p_shm, 0, PAGE_SIZE);
+    if (-1 == shmdt(p_shm)) {
+        return -1;
+    }
 
     // 创建监听套接字
     lsn_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -1017,6 +1090,9 @@ void destroy_context(context_t *p_context)
     // 释放客户端结构缓存
     fprintf(stderr, "%p\n", p_context->mp_client_cache);
     free(p_context->mp_client_cache);
+
+    // 销毁共享内存
+    (void)shmctl(IPC_PRIVATE, IPC_RMID, 0);
 
     return;
 }

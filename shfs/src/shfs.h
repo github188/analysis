@@ -17,6 +17,7 @@
 #include <sys/socket.h>
 #include <sys/resource.h>
 #include <sys/select.h>
+#include <sys/shm.h>
 #include <netinet/in.h>
 #include <linux/limits.h>
 #include <linux/tcp.h>
