@@ -6,6 +6,9 @@ digraph nginx {
     rankdir = LR;
     ranksep = 1.6;
 
+    // constants
+    n_ngx_constants [label = "<0>NGX_CONF_MODULE : 0x45524f43"];
+
     // ngx_cached_time
     n_ngx_cached_time [label = "ngx_time_t : *ngx_cached_time"];
 
@@ -542,6 +545,88 @@ digraph nginx {
             -> n_ngx_http_core_module_ctx:preconfiguration;
     };
 
+    // ngx_http_log_module
+    subgraph cluster_ngx_http_log_module {
+        label = "ngx_module_t : ngx_http_log_module";
+
+        n_ngx_http_log_module [
+            label = "<ctx_index>ngx_uint_t : ctx_index | \
+                     ... | \
+                     <ctx>void : *ctx | \
+                     <commands>ngx_command_t : *commands | \
+                     ...",
+            color = "red",
+        ];
+        subgraph cluster_ngx_http_log_module_ctx {
+            label = "ngx_http_module_t : ngx_http_log_module_ctx";
+
+            n_ngx_http_log_module_ctx [
+                label = "<preconfiguration>ngx_int_t \
+                             (*preconfiguration)(ngx_conf_t *cf) | \
+                         <postconfiguration>ngx_int_t \
+                             (*postconfiguration)(ngx_conf_t *cf) | \
+                         <create_main_conf>void \
+                             *(*create_main_conf)(ngx_conf_t *cf) | \
+                         <init_main_conf>char \
+                             *(*init_main_conf)(ngx_conf_t *cf, \
+                                                void *conf) | \
+                         <create_srv_conf>void \
+                             *(*create_srv_conf)(ngx_conf_t *cf) | \
+                         <merge_srv_conf>char \
+                             *(*merge_srv_conf)(ngx_conf_t *cf, \
+                                                void *prev, \
+                                                void *conf) | \
+                         <create_loc_conf>void \
+                             *(*create_loc_conf)(ngx_conf_t *cf) | \
+                         <merge_loc_conf>char \
+                             *(*merge_loc_conf)(ngx_conf_t *cf, \
+                                                void *prev, \
+                                                void *conf)",
+            ];
+            n_ngx_http_log_module_ctx:postconfiguration
+                -> ngx_http_log_init;
+            n_ngx_http_log_module_ctx:create_main_conf
+                -> ngx_http_log_create_main_conf;
+            n_ngx_http_log_module_ctx:create_loc_conf
+                -> ngx_http_log_create_loc_conf;
+            n_ngx_http_log_module_ctx:merge_loc_conf
+                -> ngx_http_log_merge_loc_conf;
+        };
+        subgraph cluster_ngx_http_log_main_conf {
+            label = "ngx_http_log_main_conf_t";
+
+            n_ngx_http_log_main_conf [
+                label = "<formats>ngx_array_t : formats | \
+                         <combined_used>ngx_uint_t : combined_used",
+            ];
+
+            n_ngx_http_conf_ctx_main_conf_array:1
+                -> n_ngx_http_log_main_conf:formats;
+        };
+
+        n_ngx_http_log_fmt_array [
+            label = "<0>ngx_http_log_fmt_t : [0] | \
+                     <1>ngx_http_log_fmt_t : [1] | \
+                     <2>ngx_http_log_fmt_t : [2] | \
+                     <3>ngx_http_log_fmt_t : [3]",
+        ];
+        n_ngx_http_log_fmt_elmt [
+            label = "<_name>ngx_str_t : _name | \
+                     <flushed>ngx_array_t : flushes | \
+                     <ops>ngx_array_t : ops",
+        ];
+        n_ngx_http_log_fmt_array:0
+            -> n_ngx_http_log_fmt_elmt:_name [style = "dotted"];
+        n_ngx_http_log_fmt_array:0
+            -> n_ngx_http_log_fmt_elmt:ops [style = "dotted"];
+
+        n_ngx_http_log_main_conf:formats
+            -> n_ngx_http_log_fmt_array:0;
+
+        n_ngx_http_log_module:ctx
+            -> n_ngx_http_log_module_ctx:preconfiguration;
+    };
+
     n_ngx_events_module_ctx_array:0 -> n_ngx_event_conf:connections;
     n_ngx_events_module_ctx_array:1 -> n_ngx_epoll_conf:events;
 
@@ -551,6 +636,7 @@ digraph nginx {
     n_ngx_modules:5 -> n_ngx_epoll_module:ctx_index;
     n_ngx_modules:6 -> n_ngx_http_module:ctx_index;
     n_ngx_modules:7 -> n_ngx_http_core_module:ctx_index;
+    n_ngx_modules:8 -> n_ngx_http_log_module:ctx_index;
 
     // }} ngx_modules *****
 
