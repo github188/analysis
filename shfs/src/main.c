@@ -1,6 +1,8 @@
 #include "shfs.h"
 
 
+#define DAEMON          TRUE
+
 #define LSN_PORT        8000
 #define PAGE_SIZE       4096
 #define SHM_MODE        0600
@@ -13,6 +15,7 @@
 #define SPACE           0x20
 
 extern int errno;
+static int max_file_no;
 
 
 // 字符串哈希
@@ -111,6 +114,61 @@ typedef struct {
 } client_t;
 
 static void ts_perror(char const *pc_msg, int error_no);
+
+static int fall_into_daemon(void)
+{
+    int fd = 0;
+
+#define ESCAPE_BY_CRAFTY_SCHEME()       \
+            switch (fork()) {\
+            case -1:\
+                {\
+                    return -1;\
+                }\
+            case 0:\
+                {\
+                    break;\
+                }\
+            default:\
+                {\
+                    exit(0);\
+                }\
+            }
+
+    ESCAPE_BY_CRAFTY_SCHEME();
+    if (-1 == setsid()) {
+        return -1;
+    }
+    ESCAPE_BY_CRAFTY_SCHEME();
+#undef ESCAPE_BY_CRAFTY_SCHEME
+
+    (void)umask(0);
+    if (-1 == chdir("/")) {
+        return -1;
+    }
+
+    for (int i = 0; i < max_file_no; ++i) {
+        (void)close(i);
+    }
+
+    fd = open("/dev/null", O_RDWR);
+    if (fd == -1) {
+        return -1;
+    }
+    if (-1 == dup2(fd, STDIN_FILENO)) {
+        return -1;
+    }
+
+    if (-1 == dup2(fd, STDOUT_FILENO)) {
+        return -1;
+    }
+
+    if (-1 == dup2(fd, STDERR_FILENO)) {
+        return -1;
+    }
+
+    return 0;
+}
 
 static uint32_t atomic_cmp_set(uint32_t *lock, uint32_t old, uint32_t set)  
 {  
@@ -997,6 +1055,7 @@ static int init_lsn_fd(int lsn_fd)
         return -1;
     }
 
+    // 多进程
     fork();
     fork();
 
@@ -1020,6 +1079,19 @@ int build_context(context_t *p_context, str_t const PATH_ROOT)
     list_t *p_free_clients = NULL;
     // sigset_t set = {};
     void *p_shm = NULL;
+
+    // 获得能打开的最大描述符数目
+    if (-1 == getrlimit(RLIMIT_NOFILE, &rlmt)) {
+        ASSERT(0 == close(lsn_fd));
+
+        return -1;
+    }
+    max_file_no = rlmt.rlim_cur;
+
+    // 守护进程
+    if ((DAEMON) && (-1 == fall_into_daemon())) {
+        return -1;
+    }
 
     // 初始化信号处理
 
@@ -1050,15 +1122,8 @@ int build_context(context_t *p_context, str_t const PATH_ROOT)
         return -1;
     }
 
-    // 获得能打开的最大描述符数目
-    if (-1 == getrlimit(RLIMIT_NOFILE, &rlmt)) {
-        ASSERT(0 == close(lsn_fd));
-
-        return -1;
-    }
-
     // 申请客户端结构缓存
-    p_client_cache = calloc(rlmt.rlim_cur, sizeof(client_t));
+    p_client_cache = calloc(max_file_no, sizeof(client_t));
 
     if (NULL == p_client_cache) {
         ASSERT(0 == close(lsn_fd));
@@ -1067,12 +1132,12 @@ int build_context(context_t *p_context, str_t const PATH_ROOT)
     }
 
     // 建立客户端空闲链
-    for (int i = 0; i < rlmt.rlim_cur; ++i) {
+    for (int i = 0; i < max_file_no; ++i) {
         add_node(&p_free_clients,
                  &p_client_cache[i].m_node);
     }
 
-    // 填充上下文
+    // 填充运行时上下文
     p_context->m_lsn_fd = lsn_fd;
     p_context->m_path_root = PATH_ROOT;
     p_context->mp_client_cache = p_client_cache; // 客户端缓存
@@ -1139,7 +1204,8 @@ int main(int argc, char *argv[])
 
     return 0;
 #else
-    str_t path_root = {NULL};
+    path_t path_root = {};
+    str_t path_root_tmp = {};
     struct stat root_stat = {};
 
     if (1 == argc) {
@@ -1160,9 +1226,16 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    path_root.mp_data = argv[1];
-    path_root.m_len = strlen(argv[1]);
+    init_path(&path_root);
+    path_root_tmp.mp_data = argv[1];
+    path_root_tmp.m_len = strlen(argv[1]);
+    if (NULL == realpath(path_root_tmp.mp_data,
+                         path_root.m_path.mp_data))
+    {
+        return -1;
+    }
+    path_root.m_path.m_len = strlen(path_root.m_path.mp_data);
 
-    return shfs_main(path_root);
+    return shfs_main(path_root.m_path);
 #endif
 }
