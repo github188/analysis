@@ -989,6 +989,8 @@ static int event_loop(context_t *p_context)
         // 监视事件
         nevents = select(fd_max + 1, &fds_r, &fds_w, NULL, &io_wait_tv);
         select_errno = errno;
+        errno = 0;
+
         if (nevents > 0) {
             handle_events(p_context, &fds_r, &fds_w, fd_max);
         } else if (0 == nevents) { // 超时
@@ -1212,6 +1214,7 @@ int main(int argc, char *argv[])
 
     return 0;
 #else
+    int stat_errno = 0;
     path_t path_root = {};
     str_t path_root_tmp = {};
     struct stat root_stat = {};
@@ -1223,7 +1226,10 @@ int main(int argc, char *argv[])
     }
 
     if (-1 == stat(argv[1], &root_stat)) {
-        ts_perror("path dose NOT exist", errno);
+        stat_errno = errno;
+        errno = 0;
+
+        ts_perror("path dose NOT exist", stat_errno);
 
         return -1;
     }
