@@ -626,8 +626,11 @@ static void handle_http_resp(client_t *p_clt)
                         "%s"
                         SERVER_NAME
                         "Content-Length: %s\r\n"
-                        "Cache-Control: no-cache\r\n"
+                        "Content-Transfer-Encoding: binary\r\n"
+                        "Cache-Control: must-revalidate, "
+                            "post-check=0, pre-check=0\r\n"
                         "Connection: keep-alive\r\n"
+                        "Pragma: public\r\n"
                         "Content-Type: %s\r\n\r\n",
                         pc_status_line,
                         len.mp_data,
