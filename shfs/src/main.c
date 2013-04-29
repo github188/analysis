@@ -16,6 +16,8 @@
 
 extern int errno;
 static int max_file_no;
+static int client_no;
+static sig_atomic_t volatile *sp_accept_lock = NULL;
 
 
 // 字符串哈希
@@ -170,7 +172,9 @@ static int fall_into_daemon(void)
     return 0;
 }
 
-static uint32_t atomic_cmp_set(uint32_t *lock, uint32_t old, uint32_t set)
+static inline uint32_t atomic_cmp_set(sig_atomic_t volatile *p_lock,
+                                      sig_atomic_t old,
+                                      sig_atomic_t set)
 {
     uint8_t rslt = 0;
 
@@ -178,7 +182,7 @@ static uint32_t atomic_cmp_set(uint32_t *lock, uint32_t old, uint32_t set)
                           "cmpxchgl %3, %1;"
                           "sete %0;"
                           : "=a" (rslt)
-                          : "m" (*lock), "a" (old), "r" (set)
+                          : "m" (*p_lock), "a" (old), "r" (set)
                           : "cc", "memory");
 
     return rslt;
@@ -186,24 +190,24 @@ static uint32_t atomic_cmp_set(uint32_t *lock, uint32_t old, uint32_t set)
 
 static int accept_trylock(void)
 {
-    uint32_t *p_lock = (uint32_t *)((char *)shmat(IPC_PRIVATE, 0, 0) + 0);
-
-    if (NULL == p_lock) {
+    if (NULL == sp_accept_lock) {
+        return -1;
+    }
+    if (0 != *sp_accept_lock) {
         return -1;
     }
 
-    return atomic_cmp_set(p_lock, 0, 1);
+    return atomic_cmp_set(sp_accept_lock, 0, 1) ? 0 : -1;
 }
 
-static int accept_unlock(void)
+static void accept_unlock(void)
 {
-    uint32_t *p_lock = (uint32_t *)((char *)shmat(IPC_PRIVATE, 0, 0) + 0);
-
-    if (NULL == p_lock) {
-        return -1;
+    if (NULL == sp_accept_lock) {
+        return;
     }
+    *sp_accept_lock = 0;
 
-    return atomic_cmp_set(p_lock, 1, 0);
+    return;
 }
 
 static int handle_accept(int lsn_fd, client_t *p_clt)
@@ -216,7 +220,7 @@ static int handle_accept(int lsn_fd, client_t *p_clt)
         int accept_errno = 0;
         socklen_t addrlen = 0;
 
-        if (!accept_trylock()) { // 竞争失败
+        if (0 != accept_trylock()) { // 竞争失败
             rslt = -1;
 
             break;
@@ -224,11 +228,7 @@ static int handle_accept(int lsn_fd, client_t *p_clt)
         rslt = accept(lsn_fd,
                       (struct sockaddr *)&p_clt->m_clt_addr,
                       &addrlen);
-        if (!accept_unlock()) {
-            rslt = -1;
-
-            break;
-        }
+        accept_unlock();
 
         accept_errno = errno;
         errno = 0;
@@ -236,12 +236,12 @@ static int handle_accept(int lsn_fd, client_t *p_clt)
         if (rslt > 0) {
             break;
         } else if (-1 == rslt) {
-            ts_perror("accept failed", accept_errno);
-
             if ((EAGAIN == accept_errno)
                     || (ENOSYS == accept_errno)
                     || (ECONNABORTED == accept_errno))
             {
+                ts_perror("accept failed", accept_errno);
+
                 continue;
             }
 
@@ -298,6 +298,7 @@ static int handle_accept(int lsn_fd, client_t *p_clt)
 #define HTTP404CONTENT_LEN      (sizeof(HTTP404CONTENT) - 1)
 
 typedef struct {
+    int worker_processes;
     int m_lsn_fd; // 监听套接字
     str_t m_path_root; // 根路径
     client_t *mp_client_cache; // 客户端缓存
@@ -757,7 +758,7 @@ static void handle_disconnection(context_t *p_context,
     // 断开连接
     if (close_wait) { // 被动断开
         if (-1 == shutdown(p_clt->m_cmnct_fd, SHUT_RDWR)) {
-            ts_perror("shut down failed!", errno);
+            ts_perror("shut down failed", errno);
         }
     } else { // 主动断开
         ASSERT(0 == shutdown(p_clt->m_cmnct_fd, SHUT_WR));
@@ -950,6 +951,15 @@ static int event_loop(context_t *p_context)
         0, 0,
     };
 
+    if (-1 == listen(p_context->m_lsn_fd, SOMAXCONN)) {
+        return -1;
+    }
+    sp_accept_lock
+        = (sig_atomic_t volatile *)((byte_t *)shmat(IPC_PRIVATE, 0, 0) + 0);
+    if ((sig_atomic_t volatile *)(~0) == sp_accept_lock) {
+        return -1;
+    }
+
     while (TRUE) {
         int select_errno = 0;
 
@@ -1018,6 +1028,7 @@ static int init_lsn_fd(int lsn_fd)
         .sin_addr.s_addr = htonl(INADDR_ANY),
         .sin_zero = {0},
     };
+    int tmp_errno = 0;
 
     // 非阻塞io
     if (-1 == fcntl(lsn_fd,
@@ -1060,17 +1071,11 @@ static int init_lsn_fd(int lsn_fd)
                    (struct sockaddr *)&srv_addr,
                    sizeof(srv_addr)))
     {
-        fprintf(stderr, "[ERROR] [%d]bind failed!\n", getpid());
+        tmp_errno = errno;
+        errno = 0;
 
-        return -1;
-    }
+        ts_perror("bind failed", tmp_errno);
 
-    // 多进程
-    fork();
-    fork();
-
-    // 监听
-    if (-1 == listen(lsn_fd, SOMAXCONN)) {
         return -1;
     }
 
@@ -1089,6 +1094,7 @@ int build_context(context_t *p_context, str_t const PATH_ROOT)
     list_t *p_free_clients = NULL;
     // sigset_t set = {};
     void *p_shm = NULL;
+    int tmp_errno = 0;
 
     // 获得能打开的最大描述符数目
     if (-1 == getrlimit(RLIMIT_NOFILE, &rlmt)) {
@@ -1112,6 +1118,10 @@ int build_context(context_t *p_context, str_t const PATH_ROOT)
     }
     p_shm = shmat(IPC_PRIVATE, 0, 0);
     if ((NULL == p_shm) || ((void *)(~0) == p_shm)) {
+        tmp_errno = errno;
+        errno = 0;
+        ts_perror("shmat failed", tmp_errno);
+
         return -1;
     }
     (void)memset(p_shm, 0, PAGE_SIZE);
@@ -1133,7 +1143,8 @@ int build_context(context_t *p_context, str_t const PATH_ROOT)
     }
 
     // 申请客户端结构缓存
-    p_client_cache = calloc(max_file_no, sizeof(client_t));
+    client_no = max_file_no - max_file_no / 8;
+    p_client_cache = calloc(client_no, sizeof(client_t));
 
     if (NULL == p_client_cache) {
         ASSERT(0 == close(lsn_fd));
@@ -1142,12 +1153,13 @@ int build_context(context_t *p_context, str_t const PATH_ROOT)
     }
 
     // 建立客户端空闲链
-    for (int i = 0; i < max_file_no; ++i) {
+    for (int i = 0; i < client_no; ++i) {
         add_node(&p_free_clients,
                  &p_client_cache[i].m_node);
     }
 
     // 填充运行时上下文
+    p_context->worker_processes = 4;
     p_context->m_lsn_fd = lsn_fd;
     p_context->m_path_root = PATH_ROOT;
     p_context->mp_client_cache = p_client_cache; // 客户端缓存
@@ -1181,12 +1193,28 @@ static int shfs_main(str_t const PATH_ROOT)
         return -1;
     }
 
-    // 事件循环
-    if (-1 == event_loop(&context)) {
-        destroy_context(&context);
+    for (int i = 0; i < context.worker_processes; ++i) {
+        switch (fork()) {
+        case -1:
+            {
+                return -1;
+            }
+        case 0:
+            {
+                // 事件循环
+                if (-1 == event_loop(&context)) {
+                    destroy_context(&context);
 
-        return -1;
+                    return -1;
+                }
+            }
+        default:
+            {
+                continue;
+            }
+        }
     }
+    sleep(-1);
 
     // 销毁运行上下文
     destroy_context(&context);
@@ -1195,6 +1223,7 @@ static int shfs_main(str_t const PATH_ROOT)
 }
 
 #define TEST 0
+#define CORE_DUMP_TEST 0
 int main(int argc, char *argv[])
 {
 #if TEST
@@ -1202,6 +1231,12 @@ int main(int argc, char *argv[])
     char len_buf[32] = {0x00};
     str_t len = {len_buf};
     buf_t buf;
+
+#if CORE_DUMP_TEST
+    int *p = NULL;
+
+    *p = 13;
+#endif
 
     create_buf(&buf, MIN_BUF_SIZE);
     doublesize_buf(&buf, 2);
