@@ -1,7 +1,7 @@
 #include "shfs.h"
 
 
-#define DAEMON          TRUE
+#define DAEMON          FALSE
 
 #define LSN_PORT        8000
 #define PAGE_SIZE       4096
@@ -170,18 +170,18 @@ static int fall_into_daemon(void)
     return 0;
 }
 
-static uint32_t atomic_cmp_set(uint32_t *lock, uint32_t old, uint32_t set)  
-{  
-    uint8_t rslt = 0;  
-  
+static uint32_t atomic_cmp_set(uint32_t *lock, uint32_t old, uint32_t set)
+{
+    uint8_t rslt = 0;
+
     __asm__ __volatile__ ("lock;"
                           "cmpxchgl %3, %1;"
                           "sete %0;"
                           : "=a" (rslt)
                           : "m" (*lock), "a" (old), "r" (set)
                           : "cc", "memory");
-  
-    return rslt;  
+
+    return rslt;
 }
 
 static int accept_trylock(void)
