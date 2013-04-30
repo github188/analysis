@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <sched.h>
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/stat.h>

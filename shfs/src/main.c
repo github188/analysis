@@ -17,7 +17,7 @@
 extern int errno;
 static int max_file_no;
 static int client_no;
-static sig_atomic_t volatile *sp_accept_lock = NULL;
+static uint32_t *sp_accept_lock = NULL;
 
 
 // 字符串哈希
@@ -172,42 +172,19 @@ static int fall_into_daemon(void)
     return 0;
 }
 
-static inline uint32_t atomic_cmp_set(sig_atomic_t volatile *p_lock,
-                                      sig_atomic_t old,
-                                      sig_atomic_t set)
+static uint32_t atomic_cmp_set(uint32_t *lock, uint32_t old, uint32_t set)
 {
     uint8_t rslt = 0;
 
-    __asm__ __volatile__ ("lock;"
-                          "cmpxchgl %3, %1;"
-                          "sete %0;"
-                          : "=a" (rslt)
-                          : "m" (*p_lock), "a" (old), "r" (set)
-                          : "cc", "memory");
+    assert(NULL != lock);
+    __asm__ __volatile__ ("lock;" // lock if SMP
+                  "cmpxchgl %3, %1;"
+                  "sete %0;"
+                  : "=a" (rslt)
+                  : "m" (*lock), "a" (old), "r" (set)
+                  : "cc", "memory");
 
     return rslt;
-}
-
-static int accept_trylock(void)
-{
-    if (NULL == sp_accept_lock) {
-        return -1;
-    }
-    if (0 != *sp_accept_lock) {
-        return -1;
-    }
-
-    return atomic_cmp_set(sp_accept_lock, 0, 1) ? 0 : -1;
-}
-
-static void accept_unlock(void)
-{
-    if (NULL == sp_accept_lock) {
-        return;
-    }
-    *sp_accept_lock = 0;
-
-    return;
 }
 
 static int handle_accept(int lsn_fd, client_t *p_clt)
@@ -216,19 +193,17 @@ static int handle_accept(int lsn_fd, client_t *p_clt)
 
     ASSERT(NULL != p_clt);
 
-    while (TRUE) { // 处理accept返回前连接夭折的情况
+    do {
         int accept_errno = 0;
         socklen_t addrlen = 0;
 
-        if (0 != accept_trylock()) { // 竞争失败
-            rslt = -1;
-
-            break;
+        while (!atomic_cmp_set(sp_accept_lock, 0, 1)) {
+            sched_yield();
         }
         rslt = accept(lsn_fd,
                       (struct sockaddr *)&p_clt->m_clt_addr,
                       &addrlen);
-        accept_unlock();
+        *sp_accept_lock = 0;
 
         accept_errno = errno;
         errno = 0;
@@ -249,7 +224,7 @@ static int handle_accept(int lsn_fd, client_t *p_clt)
         } else {
             ASSERT(0);
         }
-    }
+    } while (0); // 处理accept返回前连接夭折的情况
 
     return rslt;
 }
@@ -955,10 +930,11 @@ static int event_loop(context_t *p_context)
         return -1;
     }
     sp_accept_lock
-        = (sig_atomic_t volatile *)((byte_t *)shmat(IPC_PRIVATE, 0, 0) + 0);
-    if ((sig_atomic_t volatile *)(~0) == sp_accept_lock) {
+        = (uint32_t *)((byte_t *)shmat(IPC_PRIVATE, 0, 0) + 0);
+    if ((uint32_t *)(~0) == sp_accept_lock) {
         return -1;
     }
+    ASSERT(0 == *sp_accept_lock);
 
     while (TRUE) {
         int select_errno = 0;
