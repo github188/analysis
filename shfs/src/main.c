@@ -536,6 +536,8 @@ static int handle_http_requ(context_t *p_context, client_t *p_clt)
     p_clt->m_resp.m_file.m_size = fp_stat.st_size;
     if (0 == strcmp(p_filetype, "html")) {
         p_clt->m_resp.mpc_mime = "text/html";
+    } else if (0 == strcmp(p_filetype, "ico")) {
+        p_clt->m_resp.mpc_mime = "image/x-icon";
     } else if (0 == strcmp(p_filetype, "png")) {
         p_clt->m_resp.mpc_mime = "image/png";
     } else if (0 == strcmp(p_filetype, "jpg")) {
