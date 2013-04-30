@@ -178,11 +178,11 @@ static uint32_t atomic_cmp_set(uint32_t *lock, uint32_t old, uint32_t set)
 
     assert(NULL != lock);
     __asm__ __volatile__ ("lock;" // lock if SMP
-                  "cmpxchgl %3, %1;"
-                  "sete %0;"
-                  : "=a" (rslt)
-                  : "m" (*lock), "a" (old), "r" (set)
-                  : "cc", "memory");
+                          "cmpxchgl %3, %1;"
+                          "sete %0;"
+                          : "=a" (rslt)
+                          : "m" (*lock), "a" (old), "r" (set)
+                          : "cc", "memory");
 
     return rslt;
 }
@@ -197,8 +197,10 @@ static int handle_accept(int lsn_fd, client_t *p_clt)
         int accept_errno = 0;
         socklen_t addrlen = 0;
 
-        while (!atomic_cmp_set(sp_accept_lock, 0, 1)) {
-            sched_yield();
+        if ((0 != *sp_accept_lock)
+                || (!atomic_cmp_set(sp_accept_lock, 0, 1)))
+        {
+            return -1;
         }
         rslt = accept(lsn_fd,
                       (struct sockaddr *)&p_clt->m_clt_addr,
@@ -212,10 +214,11 @@ static int handle_accept(int lsn_fd, client_t *p_clt)
             break;
         } else if (-1 == rslt) {
             if ((EAGAIN == accept_errno)
+                    || (EWOULDBLOCK == accept_errno)
                     || (ENOSYS == accept_errno)
                     || (ECONNABORTED == accept_errno))
             {
-                ts_perror("accept failed", accept_errno);
+                printf("[WARNING] accept failed: %d\n", getpid());
 
                 continue;
             }
@@ -929,12 +932,6 @@ static int event_loop(context_t *p_context)
     if (-1 == listen(p_context->m_lsn_fd, SOMAXCONN)) {
         return -1;
     }
-    sp_accept_lock
-        = (uint32_t *)((byte_t *)shmat(IPC_PRIVATE, 0, 0) + 0);
-    if ((uint32_t *)(~0) == sp_accept_lock) {
-        return -1;
-    }
-    ASSERT(0 == *sp_accept_lock);
 
     while (TRUE) {
         int select_errno = 0;
@@ -1069,7 +1066,6 @@ int build_context(context_t *p_context, str_t const PATH_ROOT)
     client_t *p_client_cache = NULL;
     list_t *p_free_clients = NULL;
     // sigset_t set = {};
-    void *p_shm = NULL;
     int tmp_errno = 0;
 
     // 获得能打开的最大描述符数目
@@ -1089,20 +1085,16 @@ int build_context(context_t *p_context, str_t const PATH_ROOT)
 
 
     // 创建共享内存
-    if (-1 == shmget(IPC_PRIVATE, PAGE_SIZE, IPC_CREAT | SHM_MODE)) {
-        return -1;
-    }
-    p_shm = shmat(IPC_PRIVATE, 0, 0);
-    if ((NULL == p_shm) || ((void *)(~0) == p_shm)) {
+    if (-1 == shmget(IPC_PRIVATE,
+                     PAGE_SIZE,
+                     SHM_MODE | IPC_CREAT | IPC_EXCL))
+    {
         tmp_errno = errno;
         errno = 0;
-        ts_perror("shmat failed", tmp_errno);
 
-        return -1;
-    }
-    (void)memset(p_shm, 0, PAGE_SIZE);
-    if (-1 == shmdt(p_shm)) {
-        return -1;
+        if (EEXIST != tmp_errno) {
+            return -1;
+        }
     }
 
     // 创建监听套接字
@@ -1177,12 +1169,21 @@ static int shfs_main(str_t const PATH_ROOT)
             }
         case 0:
             {
-                // 事件循环
-                if (-1 == event_loop(&context)) {
-                    destroy_context(&context);
+                int rslt = 0;
 
+                // 事件循环
+                sp_accept_lock
+                    = (uint32_t *)((byte_t *)shmat(IPC_PRIVATE, 0, 0) + 0);
+                if ((uint32_t *)(~0) == sp_accept_lock) {
                     return -1;
                 }
+                *sp_accept_lock = 0;
+
+                rslt = event_loop(&context);
+
+                ASSERT(0 == shmdt(sp_accept_lock));
+
+                return rslt;
             }
         default:
             {
@@ -1190,7 +1191,7 @@ static int shfs_main(str_t const PATH_ROOT)
             }
         }
     }
-    sleep(-1);
+    (void)wait(NULL);
 
     // 销毁运行上下文
     destroy_context(&context);
