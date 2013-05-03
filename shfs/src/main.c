@@ -1,7 +1,7 @@
 #include "shfs.h"
 
 
-#define DAEMON          FALSE
+#define DAEMON          TRUE
 
 #define LSN_PORT        8000
 #define PAGE_SIZE       4096
@@ -1156,6 +1156,8 @@ void destroy_context(context_t *p_context)
 
 static int shfs_main(str_t const PATH_ROOT)
 {
+    int tmp_errno = 0;
+    int exit_status = 0;
     context_t context = {0};
 
     // 创建运行上下文
@@ -1193,7 +1195,20 @@ static int shfs_main(str_t const PATH_ROOT)
             }
         }
     }
-    (void)wait(NULL);
+    while (TRUE) {
+        pid_t cpid = 0;
+
+        cpid = wait(&exit_status);
+        tmp_errno = errno;
+        if ((-1 == cpid) && (ECHILD == tmp_errno)) {
+            break;
+        }
+
+        fprintf(stderr,
+                "worker process %d exit with code %d\n",
+                cpid,
+                exit_status);
+    }
 
     // 销毁运行上下文
     destroy_context(&context);
