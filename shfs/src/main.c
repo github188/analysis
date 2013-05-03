@@ -1,7 +1,7 @@
 #include "shfs.h"
 
 
-#define DAEMON          TRUE
+#define DAEMON          FALSE
 
 #define LSN_PORT        8000
 #define PAGE_SIZE       4096
@@ -190,44 +190,35 @@ static uint32_t atomic_cmp_set(uint32_t *lock, uint32_t old, uint32_t set)
 static int handle_accept(int lsn_fd, client_t *p_clt)
 {
     int rslt = 0;
+    int accept_errno = 0;
+    socklen_t addrlen = 0;
 
     ASSERT(NULL != p_clt);
 
-    do {
-        int accept_errno = 0;
-        socklen_t addrlen = 0;
+    if ((0 != *sp_accept_lock)
+            || (!atomic_cmp_set(sp_accept_lock, 0, 1)))
+    {
+        return -1;
+    }
+    rslt = accept(lsn_fd,
+                  (struct sockaddr *)&p_clt->m_clt_addr,
+                  &addrlen);
+    *sp_accept_lock = 0;
 
-        if ((0 != *sp_accept_lock)
-                || (!atomic_cmp_set(sp_accept_lock, 0, 1)))
+    accept_errno = errno;
+    errno = 0;
+
+    if (-1 == rslt) {
+        if ((EAGAIN == accept_errno)
+                || (EWOULDBLOCK == accept_errno)
+                || (ENOSYS == accept_errno)
+                || (ECONNABORTED == accept_errno))
         {
-            return -1;
-        }
-        rslt = accept(lsn_fd,
-                      (struct sockaddr *)&p_clt->m_clt_addr,
-                      &addrlen);
-        *sp_accept_lock = 0;
-
-        accept_errno = errno;
-        errno = 0;
-
-        if (rslt > 0) {
-            break;
-        } else if (-1 == rslt) {
-            if ((EAGAIN == accept_errno)
-                    || (EWOULDBLOCK == accept_errno)
-                    || (ENOSYS == accept_errno)
-                    || (ECONNABORTED == accept_errno))
-            {
-                printf("[WARNING] accept failed: %d\n", getpid());
-
-                continue;
-            }
-
-            break;
+            fprintf(stderr, "[WARNING] accept failed: %d\n", getpid());
         } else {
-            ASSERT(0);
+            ts_perror("accept failed", accept_errno);
         }
-    } while (0); // 处理accept返回前连接夭折的情况
+    }
 
     return rslt;
 }
@@ -1005,10 +996,10 @@ static int init_lsn_fd(int lsn_fd)
     };
     int tmp_errno = 0;
 
-    // 非阻塞io
+    // 非阻塞io和FD_CLOEXEC
     if (-1 == fcntl(lsn_fd,
                     F_SETFL,
-                    fcntl(lsn_fd, F_GETFL) | O_NONBLOCK))
+                    fcntl(lsn_fd, F_GETFL) | O_NONBLOCK | FD_CLOEXEC))
     {
         return -1;
     }
