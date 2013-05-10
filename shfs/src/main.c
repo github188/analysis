@@ -1,12 +1,13 @@
 #include "shfs.h"
 
 
-#define DAEMON          FALSE
+#define DAEMON              FALSE
 
-#define LSN_PORT        8000
-#define PAGE_SIZE       4096
-#define SHM_MODE        0600
-#define IPC_KEY         0xE78F8A
+#define LSN_PORT            8000
+#define WORKER_PROCESSES    4
+#define PAGE_SIZE           4096
+#define SHM_MODE            0600
+#define IPC_KEY             0xE78F8A
 
 #define NODELAY         TRUE
 #define REUSEADDR       TRUE
@@ -1120,7 +1121,7 @@ int build_context(context_t *p_context, str_t const PATH_ROOT)
     }
 
     // 填充运行时上下文
-    p_context->worker_processes = 4;
+    p_context->worker_processes = WORKER_PROCESSES;
     p_context->m_lsn_fd = lsn_fd;
     p_context->m_path_root = PATH_ROOT;
     p_context->mp_client_cache = p_client_cache; // 客户端缓存
