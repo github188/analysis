@@ -1,0 +1,167 @@
+早期的Unix系统，如果进程在一个‘慢’系统调用中阻塞时，捕获到一个信号，
+这个系统调用被中断，调用返回错误，设置errno为EINTR。
+系统调用被分为慢系统调用和其他两大类别。
+
+    慢系统调用可以被永久阻塞，包括以下几个类别：
+
+       （1）读写‘慢’设备（包括pipe，终端设备，网络连接等）。读时，
+            数据不存在，需要等待；写时，缓冲区满或其他原因，需要等待。读写磁
+            盘文件一般不会阻塞。
+
+       （2）当打开某些特殊文件时，需要等待某些条件，才能打开。
+            例如：打开中断设备时，需要等到连接设备的modem响应才能完成。
+
+       （3）pause和wait函数。pause函数使调用进程睡眠，直到捕获到一个信
+            号。wait等待子进程终止。
+
+       （4）某些ioctl操作。
+
+       （5）某些IPC操作。
+
+    有些情况下，即使操作被信号中断，还是要继续执行该操作，即需要重启该操作。
+    那么，程序需要检查系统调用的错误类型是否为EINTR，如果是，表明系统调用被
+    中断，则重新启动操作。典型代码如下所示：
+
+     again:
+          if ((n = read(fd, buf, BUFFSIZE)) < 0) {
+             if (errno == EINTR)
+                  goto again;     /* just an interrupted system call */
+            /* handle other errors */
+          }
+
+    4.2BSD为了简化程序的操作，提供了自动重启某些被中断系统调用的功能，
+    这些系统调用包括ioctl，read，readv，write，writev，wait，waitpid。
+    前五个函数当它们操作慢设备时，才会被中断。这可能给那些不希望自动重启
+    这些系统调用的应用带来麻烦，所以4.3BSD允许进程在指定信号上关闭此功能。
+
+    POSIX.1允许实现重新启动系统调用，但没有强制要求。
+    SUS给sigaction增加了一个XSI扩展标记SA_RESTART，要求被该信号中断的系统
+    调用被自动重启。
+
+ 
+别忘了--要处理被中断的系统调用
+
+一般慢速系统调用基本规则是：当阻塞于某个慢系统系统调用的一个进程捕获某个信
+号且相应信号处理函数返回时，该系统调用可能要返回
+
+ENINTR错误。
+
+ 
+
+问:linux会重启某些被中断的系统调用吗？
+
+ 
+
+处理的例子：
+
+for( ; ;) {
+     if (connfd = accept(listenfd, (SA *) &cliaddr, &clilen)) < 0) 
+    {
+    if (errno == EINTR)
+        continue;
+    }
+    else
+    {
+        errsys("accept error");
+    }
+}
+
+ 
+
+在tcp socket 中,connect()被中断后是不能被重启的？如何处理呢
+
+可以采用select来等待连接完成
+
+ 
+
+系统调用被信号中断和自动重启动
+
+    当进程正在执行一个系统调用时，如果被信号中断，这时会发生什么呢？
+
+当一个低速调用阻塞期间捕捉到一个信号， 则该系统调用就被中断不再继续执行。
+该系统调用返回出错，起errono设置为EINTR。 因为发生信号， 进程捕捉到它， 
+这将是一个很好的机会来唤醒阻塞的系统调用。
+
+但有一个问题就是如果该系统调为read()， 正在等待终端输入， 如果被信号中断的话，
+难免会影响整个程序的正确性， 所以有些系统使这类系统调用自动重启动。
+就是一旦被某信号中断， 立即再启动。
+
+如下面的signal1函数实现: 
+
+#include <signal.h>
+#include "ourhdr.h"
+
+typedef void Sigfunc(int);
+
+Sigfunc *
+signal1(int signo, Sigfunc *func)
+{
+struct sigaction        act, oact;
+
+act.sa_handler = func;
+sigemptyset(&act.sa_mask);
+act.sa_flags = 0;
+
+if (signo ==SIGALRM)
+{
+#ifdef SA_INTERRUPT
+act.sa_flags |= SA_INTERRUPT;
+#endif
+}
+else
+{
+#ifdef SA_RESTART
+/*这里对所有的信号都设置了自动再启动，唯独没有SIGALRM*/
+act.sa_flags |= SA_RESTART;
+#endif
+}
+
+if (sigaction(signo, &act, &oact)<0)
+return(SIG_ERR);
+return (oact.sa_handler);
+}
+
+为什么偏偏面对SIGALRM信号， 系统调用不设置自动重启动呢？
+这时为了我们方便给read等低速系统调用定时。我们不希望它一遇到某个信号变自动重
+启动，也不希望它无限制的阻塞下去。 于是用alarm()进行定时， 一旦超出某个时间，
+便被ALRM信号中断唤醒，且不再重启动。
+
+
+下面这段程序用来测试上面的signal1函数， 对一个read系统调用， 如何给它定时的：
+
+#include <signal.h>
+#include "ourhdr.h"
+#include "10-12.c"
+
+#define MAXLINE 1024
+
+static void sig_alrm(int);
+
+int
+main(void)
+{
+int     n;
+char line[MAXLINE];
+
+if (signal1(SIGALRM, sig_alrm) == SIG_ERR)
+perror("signal");
+
+alarm(10);
+if ( (n = read(STDIN_FILENO, line, MAXLINE)) < 0)
+perror("read");
+alarm(0);
+write(STDOUT_FILENO, line, n);
+write(STDOUT_FILENO, "exit\n", 5);
+
+exit(0);
+}
+
+static void
+sig_alrm(int signo)
+{
+write(STDOUT_FILENO, "recieved signal -ALRM\n", 22);
+return;
+}
+
+在我的系统中， 如果调用默认的signal函数， 该read()系统调用将会自动重启动，
+所谓的alarm定时也就不起作用了。
