@@ -2,6 +2,7 @@
 
 
 #define DAEMON              FALSE
+#define DEBUG               TRUE
 
 #define LSN_PORT            8000
 #define WORKER_PROCESSES    4
@@ -16,10 +17,64 @@
 #define SPACE           0x20
 
 extern int errno;
-static int max_file_no;
-static int client_no;
+static int max_file_no = 0;
+static int client_no = 0;
 static uint32_t *sp_accept_lock = NULL;
 
+
+// 信号处理
+enum {
+    SIG_NO_INT = 0xE7,
+    SIG_NO_CHLD,
+    SIG_NO_HUP,
+    SIG_NO_PIPE,
+};
+static sig_atomic_t s_sig_no = 0;
+static struct sigaction act = {};
+
+static void handle_signal(int signo)
+{
+    switch (signo) {
+    case SIGINT:
+        {
+            s_sig_no = SIG_NO_INT;
+
+            break;
+        }
+    case SIGPIPE:
+        {
+            s_sig_no = SIG_NO_PIPE;
+
+            break;
+        }
+    case SIGCHLD:
+        {
+            s_sig_no = SIG_NO_CHLD;
+
+            break;
+        }
+    case SIGHUP:
+        {
+            s_sig_no = SIG_NO_HUP;
+
+            break;
+        }
+    default:
+        {
+            break;
+        }
+    }
+}
+
+static struct {
+    int m_signo;
+    void (*m_sig_handler)(int);
+} const s_signals[] = {
+    // {SIGINT, &handle_signal},
+    {SIGPIPE, &handle_signal},
+    {SIGCHLD, &handle_signal},
+    // {SIGHUP, &handle_signal},
+};
 
 // 字符串哈希
 static int str_hash(str_t str)
@@ -806,6 +861,9 @@ static void handle_data_input(context_t *p_context, client_t *p_clt)
             int requ_rslt = 0;
 
             p_recv_buf->mp_data[p_recv_buf->m_size] = 0x00;
+            #if DEBUG
+                fprintf(stderr, "%s\n", p_recv_buf->mp_data);
+            #endif
             requ_rslt = handle_http_requ(p_context, p_clt);
             if (0 == requ_rslt) {
                 // 清空接收缓冲
@@ -1070,13 +1128,25 @@ int build_context(context_t *p_context, str_t const PATH_ROOT)
     }
     max_file_no = rlmt.rlim_cur;
 
+    // 初始化信号处理
+    sigfillset(&act.sa_mask);
+    for (int i = 0; i < ARRAY_COUNT(s_signals); ++i) {
+        act.sa_handler = s_signals[i].m_sig_handler;
+        act.sa_flags = 0;
+
+        if (-1 == sigaction(s_signals[i].m_signo, &act, NULL)) {
+            tmp_errno = errno;
+            errno = 0;
+            ts_perror("sigaction failed", tmp_errno);
+
+            return -1;
+        }
+    }
+
     // 守护进程
     if ((DAEMON) && (-1 == fall_into_daemon())) {
         return -1;
     }
-
-    // 初始化信号处理
-
 
     // 创建共享内存
     if (-1 == shmget(IPC_PRIVATE,
@@ -1146,8 +1216,28 @@ void destroy_context(context_t *p_context)
     return;
 }
 
+static int slave_main(context_t *p_context)
+{
+    int rslt = 0;
+
+    // 事件循环
+    sp_accept_lock
+        = (uint32_t *)((byte_t *)shmat(IPC_PRIVATE, 0, 0) + 0);
+    if ((uint32_t *)(~0) == sp_accept_lock) {
+        return -1;
+    }
+    *sp_accept_lock = 0;
+
+    rslt = event_loop(p_context);
+
+    ASSERT(0 == shmdt(sp_accept_lock));
+
+    return rslt;
+}
+
 static int shfs_main(str_t const PATH_ROOT)
 {
+    int rslt = 0;
     int tmp_errno = 0;
     int exit_status = 0;
     context_t context = {0};
@@ -1157,56 +1247,65 @@ static int shfs_main(str_t const PATH_ROOT)
         return -1;
     }
 
-    for (int i = 0; i < context.worker_processes; ++i) {
-        switch (fork()) {
-        case -1:
-            {
-                return -1;
-            }
-        case 0:
-            {
-                int rslt = 0;
+    do {
+        pid_t pid = 0;
+        sigset_t mask = {};
 
-                // 事件循环
-                sp_accept_lock
-                    = (uint32_t *)((byte_t *)shmat(IPC_PRIVATE, 0, 0) + 0);
-                if ((uint32_t *)(~0) == sp_accept_lock) {
-                    return -1;
-                }
-                *sp_accept_lock = 0;
+        for (int i = 0; i < context.worker_processes; ++i) {
+            pid = fork();
+            tmp_errno = errno;
+            errno = 0;
+            if (-1 == pid) {
+                rslt = -1;
+                ts_perror("fork failed", tmp_errno);
 
-                rslt = event_loop(&context);
-
-                ASSERT(0 == shmdt(sp_accept_lock));
-
-                return rslt;
-            }
-        default:
-            {
+                break;
+            } else if (0 == pid) {
+                return slave_main(&context);
+            } else {
                 continue;
             }
         }
-    }
-    while (TRUE) {
-        pid_t cpid = 0;
 
-        cpid = wait(&exit_status);
-        tmp_errno = errno;
-        if ((-1 == cpid) && (ECHILD == tmp_errno)) {
+        if (-1 == rslt) {
             break;
         }
 
-        fprintf(stderr,
-                "worker process %d exit with code %d\n",
-                cpid,
-                exit_status);
-    }
+        // 等待信号
+        sigemptyset(&mask);
+        while (TRUE) {
+            (void)sigsuspend(&mask);
+            switch (s_sig_no) {
+            case SIG_NO_CHLD:
+                {
+                    pid = wait(&exit_status);
+                    tmp_errno = errno;
+                    errno = 0;
+                    fprintf(stderr,
+                            "worker process %d exit with code %d\n",
+                            pid,
+                            exit_status);
+
+                    break;
+                }
+            case SIG_NO_PIPE:
+                {
+                    fprintf(stderr, "[WARNING] sig pipe signal \n");
+                }
+            default:
+                {
+                    break;
+                }
+            }
+        }
+    } while (0);
 
     // 销毁运行上下文
     destroy_context(&context);
 
     return 0;
 }
+
 
 #define TEST 0
 #define CORE_DUMP_TEST 0
