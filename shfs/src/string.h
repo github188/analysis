@@ -66,4 +66,74 @@ int offset_to_str(off_t value, str_t *p_target, int n)
     return real_len;
 }
 
+int find_max_repeat(char const *pc_str, int_t pass_len)
+{
+    int max_len = 0; // 最大重复长度
+
+    ASSERT(NULL != pc_str);
+    ASSERT((1 < pass_len) && (pass_len < strlen(pc_str)));
+
+    for (max_len = pass_len - 1; max_len > 0; --max_len) {
+        #define LEFT            0
+        #define RIGHT           1
+
+        for (int_t iter[2] = {max_len - 1, pass_len - 1};
+             iter[RIGHT] >= 0;
+             --iter[LEFT], --iter[RIGHT])
+        {
+            if (pc_str[iter[LEFT]] != pc_str[iter[RIGHT]]) {
+                break;
+            }
+        }
+
+        #undef RIGHT
+        #undef LEFT
+    }
+
+    return max_len;
+}
+
+int find_string_kmp(char const *pc_str, char const *pc_sub)
+{
+    int rslt = -1;
+
+    ASSERT(NULL != pc_str);
+    ASSERT(NULL != pc_sub);
+
+    do {
+        int i = 0;
+        int j = 0;
+        int const STR_LEN = strlen(pc_str);
+        int const SUB_LEN = strlen(pc_sub);
+
+        if (SUB_LEN <= 0) {
+            break;
+        }
+
+        while((STR_LEN - i) > (SUB_LEN - j)) {
+            if (SUB_LEN == j) {
+                rslt = i - j;
+                break;
+            }
+
+            if (pc_str[i] == pc_sub[j]) {
+                ++i;
+                ++j;
+                continue;
+            }
+
+            if (j > 1) {
+                j = find_max_repeat(pc_sub, j);
+            } else {
+                --j;
+            }
+
+            ++i;
+        }
+    } while (0);
+
+    return rslt;
+}
+
+
 #endif // __STRING_H__

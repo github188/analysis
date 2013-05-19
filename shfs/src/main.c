@@ -1,3 +1,5 @@
+// simple http server demo
+
 #include "shfs.h"
 
 
@@ -127,6 +129,7 @@ typedef enum {
 // http响应状态
 typedef enum {
     RS_HTTP_200 = 200,
+    RS_HTTP_206 = 206,
     RS_HTTP_403 = 403,
     RS_HTTP_404 = 404,
 } resp_status_t;
