@@ -93,7 +93,10 @@ int find_max_repeat(char const *pc_str, int_t pass_len)
     return max_len;
 }
 
-int find_string_kmp(char const *pc_str, char const *pc_sub)
+int find_string_kmp(char const *pc_str,
+                    int str_len,
+                    char const *pc_sub,
+                    int sub_len)
 {
     int rslt = -1;
 
@@ -103,8 +106,8 @@ int find_string_kmp(char const *pc_str, char const *pc_sub)
     do {
         int i = 0;
         int j = 0;
-        int const STR_LEN = strlen(pc_str);
-        int const SUB_LEN = strlen(pc_sub);
+        int const STR_LEN = str_len;
+        int const SUB_LEN = sub_len;
 
         if (SUB_LEN <= 0) {
             break;

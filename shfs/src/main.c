@@ -149,7 +149,9 @@ typedef struct {
 
 // http请求
 typedef struct {
-    int m_requ_method;
+    int m_requ_method; // 请求方法
+    off_t m_range_b;    // 只支持正向单个区间
+    off_t m_range_len;
 } http_requ_t;
 
 // http响应
@@ -457,6 +459,7 @@ static int handle_http_requ(context_t *p_context, client_t *p_clt)
     path_t filepath = {{NULL}};
     struct stat fp_stat = {0};
     char *p_filetype = NULL;
+    int range_b = 0;
 
     ASSERT(NULL != p_context);
     ASSERT(NULL != p_clt);
@@ -526,6 +529,22 @@ static int handle_http_requ(context_t *p_context, client_t *p_clt)
         fprintf(stderr, "[ERROR] illegal file name!\n");
 
         return -1;
+    }
+
+    // 解析range行
+    range_b = find_string_kmp(requ_line.mp_data,
+                              requ_line.m_len,
+                              "RANGE",
+                              sizeof("RANGE") - 1);
+    if (-1 == range_b) {
+        range_b = find_string_kmp(requ_line.mp_data,
+                                  requ_line.m_len,
+                                  "Range",
+                                  sizeof("Range") - 1);
+    }
+    if (range_b >= 0) { // 断点续传
+    } else {
+        p_clt->m_requ.m_range_len = 0;
     }
 
     // 生成文件路径
