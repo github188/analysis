@@ -66,6 +66,19 @@ int offset_to_str(off_t value, str_t *p_target, int n)
     return real_len;
 }
 
+static inline
+off_t str_to_offset(str_t const *pc_num)
+{
+    off_t rslt = 0;
+
+    ASSERT(NULL != pc_num);
+    for (int i = 0; i < pc_num->m_len; ++i) {
+        rslt += (pc_num->mp_data[i] - '0') * 10;
+    }
+
+    return rslt;
+}
+
 int find_max_repeat(char const *pc_str, int_t pass_len)
 {
     int max_len = 0; // 最大重复长度

@@ -150,8 +150,7 @@ typedef struct {
 // http请求
 typedef struct {
     int m_requ_method; // 请求方法
-    off_t m_range_b;    // 只支持正向单个区间
-    off_t m_range_len;
+    off_t m_range_b; // 起始偏移
 } http_requ_t;
 
 // http响应
@@ -159,6 +158,7 @@ typedef struct {
     int m_resp_status; // 响应状态
     file_t m_file;
     char const *mpc_mime; // mime类型
+    off_t m_range_b; // 起始偏移
     off_t m_sent_size; // 已发送大小
     off_t m_total_size; // 总大小
 } http_resp_t;
@@ -238,7 +238,7 @@ static uint32_t atomic_cmp_set(uint32_t *lock, uint32_t old, uint32_t set)
     uint8_t rslt = 0;
 
     assert(NULL != lock);
-    __asm__ __volatile__ ("lock;" // lock if SMP
+    __asm__ __volatile__ ("lock;"
                           "cmpxchgl %3, %1;"
                           "sete %0;"
                           : "=a" (rslt)
@@ -532,6 +532,7 @@ static int handle_http_requ(context_t *p_context, client_t *p_clt)
     }
 
     // 解析range行
+    p_clt->m_requ.m_range_b = 0;
     range_b = find_string_kmp(requ_line.mp_data,
                               requ_line.m_len,
                               "RANGE",
@@ -543,8 +544,32 @@ static int handle_http_requ(context_t *p_context, client_t *p_clt)
                                   sizeof("Range") - 1);
     }
     if (range_b >= 0) { // 断点续传
-    } else {
-        p_clt->m_requ.m_range_len = 0;
+        str_t offset = {};
+
+        range_b = find_string_kmp(requ_line.mp_data,
+                                  requ_line.m_len,
+                                  "bytes",
+                                  sizeof("bytes") - 1);
+        if (range_b < 0) { // 非法请求
+            return -1;
+        }
+        while ((requ_line.mp_data[range_b] < '0')
+                   || (requ_line.mp_data[range_b] > '9'))
+        {
+            if (0x00 == requ_line.mp_data[range_b]) {
+                return -1;
+            }
+            ++range_b;
+        }
+        offset.mp_data = &requ_line.mp_data[range_b];
+        offset.m_len = 0;
+        for (int i = 0; 0x00 == offset.mp_data[i]; ++i) {
+            if ('-' == offset.mp_data[i]) {
+                break;
+            }
+            ++offset.m_len;
+        }
+        p_clt->m_requ.m_range_b = str_to_offset(&offset);
     }
 
     // 生成文件路径
@@ -628,6 +653,7 @@ static int handle_http_requ(context_t *p_context, client_t *p_clt)
     } else {
         p_clt->m_resp.mpc_mime = "application/octet-stream";
     }
+    p_clt->m_resp.m_range_b = p_clt->m_requ.m_range_b;
     p_clt->m_resp.m_sent_size = 0;
     p_clt->m_resp.m_total_size = 0;
 
@@ -1067,7 +1093,6 @@ static int event_loop(context_t *p_context)
 static int init_lsn_fd(int lsn_fd)
 {
     int reuseaddr = REUSEADDR;
-    int keepalive = KEEPALIVE;
     int nodelay = NODELAY;
     struct sockaddr_in srv_addr = {
         .sin_family = AF_INET,
@@ -1091,16 +1116,6 @@ static int init_lsn_fd(int lsn_fd)
                          SO_REUSEADDR,
                          &reuseaddr,
                          sizeof(reuseaddr)))
-    {
-        return -1;
-    }
-
-    // 连接保持
-    if (-1 == setsockopt(lsn_fd,
-                         SOL_SOCKET,
-                         SO_KEEPALIVE,
-                         &keepalive,
-                         sizeof(keepalive)))
     {
         return -1;
     }
