@@ -1,6 +1,9 @@
 #ifndef __LIST_H__
 #define __LIST_H__
 
+#if __cplusplus
+extern "C" {
+#endif // __cplusplus
 
 // 单链表
 typedef intptr_t list_t;
@@ -42,4 +45,7 @@ void rm_node(list_t **pp_list, list_t *p_node)
 
     return;
 }
+#if __cplusplus
+}
+#endif // __cplusplus
 #endif // __LIST_H__

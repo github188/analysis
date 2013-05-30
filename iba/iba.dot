@@ -1,0 +1,40 @@
+digraph nginx {
+    node [
+        shape = "record",
+    ];
+    rank = same;
+    rankdir = LR;
+
+    data_page [
+        label = "<px>point[x] | \
+                 timestamp_begin | \
+                 timestamp_end | \
+                 record1 | \
+                 record2 | \
+                 ... | \
+                 <rn>recordn",
+    ];
+    subgraph cluster_cache {
+        label = "cache";
+
+        cached_point_0 [
+            label = "point[0]",
+        ];
+
+        cached_point_1 [
+            label = "point[1]",
+        ];
+        cached_point_all [
+            label = "...",
+        ];
+        cached_point_n [
+            label = "point[n]",
+        ];
+    };
+    cached_point_0 -> data_page:px [
+        style = "dotted",
+    ];
+    cached_point_0 -> data_page:rn [
+        style = "dotted",
+    ];
+}
