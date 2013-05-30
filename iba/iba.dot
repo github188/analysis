@@ -5,7 +5,8 @@ digraph nginx {
     rank = same;
     rankdir = LR;
 
-    data_page [
+    // 数据页
+    data_page_detail [
         label = "<px>point[x] | \
                  timestamp_begin | \
                  timestamp_end | \
@@ -14,6 +15,19 @@ digraph nginx {
                  ... | \
                  <rn>recordn",
     ];
+
+    // 缓冲页
+    cache_page_detail [
+        label = "<px>point[x] | \
+                 timestamp_begin | \
+                 timestamp_end | \
+                 record1 | \
+                 record2 | \
+                 ... | \
+                 <rn>recordn",
+    ];
+
+    // 点缓冲
     subgraph cluster_cache {
         label = "cache";
 
@@ -31,10 +45,36 @@ digraph nginx {
             label = "point[n]",
         ];
     };
-    cached_point_0 -> data_page:px [
+    cached_point_0 -> data_page_detail:px [
         style = "dotted",
     ];
-    cached_point_0 -> data_page:rn [
+    cached_point_0 -> data_page_detail:rn [
         style = "dotted",
     ];
+
+    // 数据区
+    subgraph cluster_data_area {
+        label = "data_area";
+
+        data_page_0 [
+            label = "data_page_0",
+        ];
+        data_page_all [
+            label = "...",
+        ];
+        data_page_n [
+            label = "data_page_n",
+        ];
+    };
+    data_page_0 -> cache_page_detail:px [
+        style = "dotted",
+    ];
+    data_page_0 -> cache_page_detail:rn [
+        style = "dotted",
+    ];
+
+    // 二级索引
+    subgraph cluster_level2_idx {
+        label = "level2_index";
+    };
 }
