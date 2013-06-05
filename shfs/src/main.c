@@ -7,7 +7,7 @@
 #define DEBUG               TRUE
 
 #define LSN_PORT            8000
-#define WORKER_PROCESSES    4
+#define WORKER_PROCESSES    1
 #define PAGE_SIZE           4096
 #define SHM_MODE            0600
 #define IPC_KEY             0xE78F8A
@@ -482,7 +482,10 @@ static int handle_http_requ(context_t *p_context, client_t *p_clt)
     // 解析请求方法
     item.mp_data = requ_line.mp_data;
     item.m_len = 0;
-    for (int i = 0; '\r' != item.mp_data[i]; ++i) {
+    for (int i = 0;
+         ('\r' != item.mp_data[i]) && (0x00 != item.mp_data[i]);
+         ++i)
+    {
         if (SPACE == item.mp_data[i]) {
             break;
         }
@@ -836,7 +839,9 @@ static void handle_disconnection(context_t *p_context,
             ts_perror("shut down failed", errno);
         }
     } else { // 主动断开
-        ASSERT(0 == shutdown(p_clt->m_cmnct_fd, SHUT_WR));
+        if (-1 == shutdown(p_clt->m_cmnct_fd, SHUT_WR)) {
+            ts_perror("shut down failed", errno);
+        }
         while (TRUE) {
             char buf_tmp[256] = {0x00};
 
@@ -847,7 +852,9 @@ static void handle_disconnection(context_t *p_context,
             {
                 continue;
             } else {
-                ASSERT(0 == shutdown(p_clt->m_cmnct_fd, SHUT_RD));
+                if (-1 == shutdown(p_clt->m_cmnct_fd, SHUT_RD)) {
+                    ts_perror("shut down failed", errno);
+                }
 
                 break;
             }
