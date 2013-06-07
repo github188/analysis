@@ -26,12 +26,16 @@ int main(void)
     for (int i = 0; i < count; ++i) {
         p_rslt[i] = i + 1;
     }
+
+for (int i = 0; i < 3; ++i) {
+    std::cout << "***** the " << i + 1 << " time *****" << std::endl;
+
     for (int i = 0; i < 6; ++i) {
         int left = rand() % count;
         int right = rand() % count;
     #if 1
         int tmp = 0;
-        
+
         tmp = p_rslt[right];
         p_rslt[right] = p_rslt[left];
         p_rslt[left] = tmp;
@@ -47,6 +51,8 @@ int main(void)
     for (int i = 0; i < count; ++++i) {
         std::cout << p_rslt[i] << " vs " << p_rslt[i + 1] << std::endl;
     }
+}
+
     delete[] p_rslt;
 
     std::cout << "press any key to exit..." << std::endl;
