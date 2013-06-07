@@ -17,6 +17,9 @@ int main(void)
         if (std::cin.fail()) {
             continue;
         }
+        if (0 == count) {
+            continue;
+        }
         if (!(count & 1)) {
             break;
         }
