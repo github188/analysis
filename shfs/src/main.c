@@ -261,25 +261,24 @@ static int handle_accept(int lsn_fd, client_t *p_clt)
     {
         return -1;
     }
-    rslt = accept(lsn_fd,
-                  (struct sockaddr *)&p_clt->m_clt_addr,
-                  &addrlen);
-    *sp_accept_lock = 0;
-
-    accept_errno = errno;
-    errno = 0;
-
-    if (-1 == rslt) {
-        if ((EAGAIN == accept_errno)
-                || (EWOULDBLOCK == accept_errno)
-                || (ENOSYS == accept_errno)
-                || (ECONNABORTED == accept_errno))
-        {
-            fprintf(stderr, "[WARNING] accept failed: %d\n", getpid());
-        } else {
+    while (TRUE) {
+        errno = 0;
+        rslt = accept(lsn_fd,
+                      (struct sockaddr *)&p_clt->m_clt_addr,
+                      &addrlen);
+        accept_errno = errno;
+        if (0 == rslt) {
+            break;
+        }
+        if ((ENOSYS == accept_errno) || (ECONNABORTED == accept_errno)) {
             ts_perror("accept failed", accept_errno);
+            break;
+        }
+        if ((EAGAIN == accept_errno) || (EWOULDBLOCK == accept_errno)) {
+            continue;
         }
     }
+    *sp_accept_lock = 0;
 
     return rslt;
 }
@@ -901,12 +900,12 @@ static void handle_data_input(context_t *p_context, client_t *p_clt)
             }
         }
 
+        errno = 0;
         recved_size = recv(p_clt->m_cmnct_fd,
                            &p_recv_buf->mp_data[p_recv_buf->m_size],
                            p_recv_buf->m_capacity - p_recv_buf->m_size - 1,
                            0);
         recv_errno = errno;
-        errno = 0;
 
         if (recved_size > 0) {
             p_recv_buf->m_size += recved_size;
@@ -1077,9 +1076,9 @@ static int event_loop(context_t *p_context)
         io_wait_tv.tv_usec = 20 * 1000; // 20毫秒定时器
 
         // 监视事件
+        errno = 0;
         nevents = select(fd_max + 1, &fds_r, &fds_w, NULL, &io_wait_tv);
         select_errno = errno;
-        errno = 0;
 
         if (nevents > 0) {
             handle_events(p_context, &fds_r, &fds_w, fd_max);
@@ -1136,12 +1135,12 @@ static int init_lsn_fd(int lsn_fd)
     }
 
     // 绑定ip端口
+    errno = 0;
     if (-1 == bind(lsn_fd,
                    (struct sockaddr *)&srv_addr,
                    sizeof(srv_addr)))
     {
         tmp_errno = errno;
-        errno = 0;
 
         ts_perror("bind failed", tmp_errno);
 
@@ -1178,9 +1177,9 @@ int build_context(context_t *p_context, str_t const PATH_ROOT)
         act.sa_handler = s_signals[i].m_sig_handler;
         act.sa_flags = 0;
 
+        errno = 0;
         if (-1 == sigaction(s_signals[i].m_signo, &act, NULL)) {
             tmp_errno = errno;
-            errno = 0;
             ts_perror("sigaction failed", tmp_errno);
 
             return -1;
@@ -1193,12 +1192,12 @@ int build_context(context_t *p_context, str_t const PATH_ROOT)
     }
 
     // 创建共享内存
+    errno = 0;
     if (-1 == shmget(IPC_PRIVATE,
                      PAGE_SIZE,
                      SHM_MODE | IPC_CREAT | IPC_EXCL))
     {
         tmp_errno = errno;
-        errno = 0;
 
         if (EEXIST != tmp_errno) {
             return -1;
@@ -1296,9 +1295,9 @@ static int shfs_main(str_t const PATH_ROOT)
         sigset_t mask = {};
 
         for (int i = 0; i < context.worker_processes; ++i) {
+            errno = 0;
             pid = fork();
             tmp_errno = errno;
-            errno = 0;
             if (-1 == pid) {
                 rslt = -1;
                 ts_perror("fork failed", tmp_errno);
@@ -1322,9 +1321,9 @@ static int shfs_main(str_t const PATH_ROOT)
             switch (s_sig_no) {
             case SIG_NO_CHLD:
                 {
+                    errno = 0;
                     pid = wait(&exit_status);
                     tmp_errno = errno;
-                    errno = 0;
                     fprintf(stderr,
                             "worker process %d exit with code %d\n",
                             pid,
@@ -1389,9 +1388,9 @@ int main(int argc, char *argv[])
         return 0;
     }
 
+    errno = 0;
     if (-1 == stat(argv[1], &root_stat)) {
         stat_errno = errno;
-        errno = 0;
 
         ts_perror("path dose NOT exist", stat_errno);
 
