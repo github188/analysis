@@ -4,10 +4,10 @@
 
 
 #define DAEMON              FALSE
-#define DEBUG               TRUE
+#define DEBUG               FALSE
 
 #define LSN_PORT            8000
-#define WORKER_PROCESSES    1
+#define WORKER_PROCESSES    4
 #define PAGE_SIZE           4096
 #define SHM_MODE            0600
 #define IPC_KEY             0xE78F8A
@@ -267,7 +267,7 @@ static int handle_accept(int lsn_fd, client_t *p_clt)
                       (struct sockaddr *)&p_clt->m_clt_addr,
                       &addrlen);
         accept_errno = errno;
-        if (0 == rslt) {
+        if (rslt > 0) {
             break;
         }
         if ((ENOSYS == accept_errno) || (ECONNABORTED == accept_errno)) {

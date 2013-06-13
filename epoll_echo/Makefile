@@ -1,2 +1,2 @@
 ALL:
-	gcc -Wall -g -o echo src/main.c
+	gcc -Wall -std=c99 -g -o echo src/main.c
