@@ -1327,7 +1327,8 @@ static int shfs_main(str_t const PATH_ROOT)
                     fprintf(stderr,
                             "worker process %d exit with code %d\n",
                             pid,
-                            exit_status);
+                            WIFEXITED(exit_status)
+                                ? WEXITSTATUS(exit_status) : 0xe78f8a);
 
                     break;
                 }
