@@ -71,6 +71,13 @@ void rm_node(list_t **pp_list, list_t *p_node)
 
 
 typedef struct {
+    void (*mpf_on_connected)(void);
+    void (*mpf_on_readable)(void);
+    void (*mpf_on_writable)(void);
+    void (*mpf_on_disconnected)(void);
+} event_handler_t; // 事件回调
+
+typedef struct {
     int m_fd; // 发生事件的描述符
     int m_overdue; // 事件过期标识
     list_t m_next;
@@ -81,8 +88,38 @@ typedef struct {
     list_t *mp_freelist;
 } event_mng_t;
 
-static int s_master = 1;
+// 套接字时间枚举
+typedef enum {
+    EV_CONNECTED = 1 << 0,
+    EV_READABLE = 1 << 1,
+    EV_WRITABLE = 1 << 2,
+    EV_DISCONNECTED = 1 << 3,
+} ev_type_t;
 
+typedef struct {
+    int m_fd; // 描述符
+    int m_lsn; // 是否为监听套接字
+    int m_conn; // 是否为连接状态
+    ev_type_t m_ev; // 最新事件
+    int m_overdue; // 事件是否过期
+    event_handler_t m_handler; // 事件处理函数集
+} tcpsock_t;
+
+/*static int open_tcpsock(tcpsock_t *const THIS,
+                        int listen,
+                        uint32_t ip,
+                        uint16_t port)
+{
+    return 0;
+}
+
+static void close_tcpsock(tcpsock_t *const THIS)
+{
+
+}*/
+
+
+static int s_master = 1;
 
 static int worker_main(int lsn_fd)
 {
@@ -91,8 +128,9 @@ static int worker_main(int lsn_fd)
     struct epoll_event epev = {};
     event_t *p_evs = NULL;
     event_t *p_ev = NULL;
+    struct epoll_event epevs[CONNS_PER_PS] = {};
     event_mng_t evmnger = {};
-    
+
     errno = 0;
     epfd = epoll_create(CONNS_PER_PS);
     tmp_err = errno;
@@ -114,8 +152,10 @@ static int worker_main(int lsn_fd)
     for (int i = 0; i < CONNS_PER_PS; ++i) {
         add_node(&evmnger.mp_freelist, &p_evs[i].m_next);
     }
-    
+
     do {
+        int n = 0;
+
         // 为监听套接字分配事件
         p_ev = CONTAINER_OF(&evmnger.mp_freelist[0], event_t, m_next);
         rm_node(&evmnger.mp_freelist, &p_ev->m_next);
@@ -130,6 +170,11 @@ static int worker_main(int lsn_fd)
             tmp_err = errno;
             fprintf(stderr, "[ERROR] epoll_ctl failed: %d\n", tmp_err);
 
+        }
+
+        n = epoll_wait(epfd, epevs, CONNS_PER_PS, -1);
+        if (n > 0) {
+            fprintf(stderr, "get connection\n");
         }
     } while (0);
 
