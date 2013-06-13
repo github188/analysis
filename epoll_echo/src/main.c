@@ -6,12 +6,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 
 #define SRV_PORT        9797
-
-
-extern int errno;
 
 
 static int listen_main(sock)
