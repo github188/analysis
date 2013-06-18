@@ -1,0 +1,25 @@
+set nocompatible
+
+execute pathogen#infect()
+syntax on
+filetype plugin indent on
+set number
+set fileencodings=utf8,gbk
+set fileencoding=utf8
+set fileformats=unix,dos
+set fileformat=unix
+set expandtab
+set tabstop=4
+set shiftwidth=4
+set backspace=indent,eol,start
+set colorcolumn=80
+set cindent
+
+map <F3> :NERDTreeToggle<CR>
+imap <C-h> <left>
+imap <C-j> <down>
+imap <C-k> <up>
+imap <C-l> <right>
+
+let Tlist_Use_Right_Window=1
+map <F4> :Tlist<CR>
