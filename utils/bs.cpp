@@ -20,10 +20,10 @@ int binary_search(int array[],int n,int value)
     }
     
     do {
-        mid = (start + stop) / 2;
+        mid = start + (stop - start) / 2;
         
         if (value == array[mid]) {
-            rslt = 0;
+            rslt = value;
             
             break;
         } else {
