@@ -4,7 +4,7 @@ execute pathogen#infect()
 syntax on
 filetype plugin indent on
 set number
-set fileencodings=utf8,gbk
+set fileencodings=utf8,gbk,cp936
 set fileencoding=utf8
 set fileformats=unix,dos
 set fileformat=unix
@@ -14,6 +14,11 @@ set shiftwidth=4
 set backspace=indent,eol,start
 set colorcolumn=80
 set cindent
+set bg=dark
+set hlsearch
+set ruler
+set showmode
+set nolinebreak
 
 map <F3> :NERDTreeToggle<CR>
 imap <C-h> <left>
