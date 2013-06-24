@@ -34,6 +34,8 @@ set showmode
 set nolinebreak
 
 map <F3> :NERDTreeToggle<CR>
+map <C-h> <C-w>h
+map <C-l> <C-w>l
 imap <C-h> <left>
 imap <C-j> <down>
 imap <C-k> <up>
