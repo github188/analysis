@@ -21,6 +21,7 @@
 extern int errno;
 static int max_file_no = 0;
 static int client_no = 0;
+static int ipc_key = 0;
 static uint32_t *sp_accept_lock = NULL;
 
 
@@ -1193,12 +1194,11 @@ int build_context(context_t *p_context, str_t const PATH_ROOT)
 
     // 创建共享内存
     errno = 0;
-    if (-1 == shmget(IPC_PRIVATE,
+    ipc_key = shmget(IPC_PRIVATE,
                      PAGE_SIZE,
-                     SHM_MODE | IPC_CREAT | IPC_EXCL))
-    {
-        tmp_errno = errno;
-
+                     SHM_MODE | IPC_CREAT | IPC_EXCL);
+    tmp_errno = errno;
+    if (-1 == ipc_key) {
         if (EEXIST != tmp_errno) {
             return -1;
         }
@@ -1254,6 +1254,7 @@ void destroy_context(context_t *p_context)
     free(p_context->mp_client_cache);
 
     // 销毁共享内存
+    fprintf(stderr, "destroy shm\n");
     (void)shmctl(IPC_PRIVATE, IPC_RMID, 0);
 
     return;
@@ -1265,8 +1266,10 @@ static int slave_main(context_t *p_context)
 
     // 事件循环
     sp_accept_lock
-        = (uint32_t *)((byte_t *)shmat(IPC_PRIVATE, 0, 0) + 0);
+        = (uint32_t *)((byte_t *)shmat(ipc_key, 0, 0) + 0);
     if ((uint32_t *)(~0) == sp_accept_lock) {
+        fprintf(stderr, "[ERROR] shmat() failed: %d\n", errno);
+
         return -1;
     }
     *sp_accept_lock = 0;
