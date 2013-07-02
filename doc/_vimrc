@@ -33,6 +33,8 @@ set ruler
 set showmode
 set nolinebreak
 
+autocmd BufWrite * execute ":%s/ *$//"
+
 map <F3> :NERDTreeToggle<CR>
 map <C-h> <C-w>h
 map <C-l> <C-w>l
