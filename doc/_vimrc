@@ -33,12 +33,9 @@ set ruler
 set showmode
 set nolinebreak
 
-map <F2> :%s/ *$//<CR>
-"autocmd BufWrite * execute "%s/ *$//"
+map <F12> :A<CR>
 
 map <F3> :NERDTreeToggle<CR>
-map <C-h> <C-w>h
-map <C-l> <C-w>l
 imap <C-h> <left>
 imap <C-j> <down>
 imap <C-k> <up>
@@ -46,3 +43,17 @@ imap <C-l> <right>
 
 let Tlist_Use_Right_Window=1
 map <F4> :Tlist<CR>
+
+" 尾部空格删除
+autocmd BufWrite * execute ":mark z"
+autocmd BufWrite * execute ":%s/ *$//"
+autocmd BufWrite * execute "'z"
+
+" 括号匹配
+inoremap ( ()<LEFT>
+inoremap [ []<LEFT>
+inoremap { {}<LEFT>
+
+" 自动检测文件类型
+filetype on
+filetype plugin on
