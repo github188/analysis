@@ -9,7 +9,7 @@
 "
 " install taglist:
 " cd ~/.vim/bundle
-" git clone https://github.com/vim-scripts/taglist.vim.git taglist 
+" git clone https://github.com/vim-scripts/taglist.vim.git taglist
 
 set nocompatible
 
@@ -33,7 +33,8 @@ set ruler
 set showmode
 set nolinebreak
 
-autocmd BufWrite * execute ":%s/ *$//"
+map <F2> :%s/ *$//<CR>
+"autocmd BufWrite * execute "%s/ *$//"
 
 map <F3> :NERDTreeToggle<CR>
 map <C-h> <C-w>h
