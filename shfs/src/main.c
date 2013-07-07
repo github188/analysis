@@ -653,6 +653,8 @@ static int handle_http_requ(context_t *p_context, client_t *p_clt)
         p_clt->m_resp.mpc_mime = "video/avi";
     } else if(0 == strcmp(p_filetype, "rmvb")) {
         p_clt->m_resp.mpc_mime = "video/rmvb";
+    } else if(0 == strcmp(p_filetype, "mkv")) {
+        p_clt->m_resp.mpc_mime = "video/mkv";
     } else {
         p_clt->m_resp.mpc_mime = "application/octet-stream";
     }
