@@ -36,10 +36,27 @@ int main(void)
     int ax[] = {23, 56, 88, 109, 333, 456, 551, 767, 845};
 
     for (i = 0; i < (int)(sizeof(ax) / sizeof(ax[0])); ++i) {
-        px = bsearch(ax, sizeof(ax)/sizeof(ax[0]), ax[i]);
+        px = bsearch(ax, sizeof(ax) / sizeof(ax[0]), ax[i]);
         if (NULL == px) {
             continue;
         }
+        fprintf(stderr, "%d\n", *px);
+    }
+
+    px = bsearch(ax, sizeof(ax)/sizeof(ax[0]), 22);
+    if (NULL != px) {
+        fprintf(stderr, "%d\n", *px);
+    }
+    px = bsearch(ax, sizeof(ax)/sizeof(ax[0]), 92);
+    if (NULL != px) {
+        fprintf(stderr, "%d\n", *px);
+    }
+    px = bsearch(ax, sizeof(ax)/sizeof(ax[0]), 522);
+    if (NULL != px) {
+        fprintf(stderr, "%d\n", *px);
+    }
+    px = bsearch(ax, sizeof(ax)/sizeof(ax[0]), 846);
+    if (NULL != px) {
         fprintf(stderr, "%d\n", *px);
     }
 
