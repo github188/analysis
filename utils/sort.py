@@ -10,6 +10,9 @@ class sort(object) :
     def __bubble_sort(cls, data = [], start = 0, end = -1) :
         if end < 0 :
             end += len(data)
+        if end > len(data) :
+            end = len(data)
+
         if end <= start :
             return None
 
@@ -42,6 +45,9 @@ class sort(object) :
 
         if end < 0 :
             end += len(data)
+        if end > len(data) :
+            end = len(data)
+
         if end <= start :
             return None
 
@@ -51,32 +57,39 @@ class sort(object) :
         pivot = end
         i = start
         j = end - 1
-        while i < j :
+        while True :
             if data[i] > data[pivot] :
                 data[i], data[j] = data[j], data[i]
             else :
                 i += 1
+            if i > j :
+                break;
             if data[j] < data[pivot] :
                 data[j], data[i] = data[i], data[j]
             else :
                 j -= 1
+            if i > j :
+                break;
+
         data[i], data[pivot] = data[pivot], data[i]
         pivot = i
+
         cls.__quick_sort(data, start, pivot - 1)
         cls.__quick_sort(data, pivot + 1, end)
+
+    @classmethod
+    def do_sort(cls, data, start = 0, end = -1) :
+        cls.__quick_sort(data, start, end)
 
 
 def main() :
     if "__main__" == __name__ :
         orig = (5, 2, 56, 33, 1, 9, 4, 12, 10, 7)
-        data1 = list(orig)
-        data2 = list(orig)
+        data = list(orig)
 
-        sort._sort__bubble_sort(data1)
-        print data1
-
-        sort._sort__quick_sort(data2)
-        print data2
+        for i in range(0, len(data)) :
+            sort.do_sort(data, 0, i)
+            print data
 
         print orig
         sys.exit(0)
