@@ -17,6 +17,7 @@ execute pathogen#infect()
 syntax on
 filetype plugin indent on
 set number
+language message en_US.UTF-8
 set fileencodings=utf8,gbk,cp936
 set fileencoding=utf8
 set fileformats=unix,dos
