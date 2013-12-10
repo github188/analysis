@@ -3,6 +3,10 @@
 
 
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+#include "rbtree.h"
 
 
 static inline
@@ -25,17 +29,17 @@ void list_remove(intptr_t **node)
 typedef struct s_vertex vertex_t;
 struct s_vertex {
     vertex_t *__vertex__;
-    intptr_t __list_node__;
+    intptr_t __weight__;
+    struct rb_node __rb_node__;
 };
 
 typedef struct {
-    vertex_t *__vertexes__;
+    struct rb_root __vertexes__;
     intptr_t __vertex_count__;
     intptr_t __edge_count__;
-    intptr_t *__cache_list__;
 } graph_t;
 extern intptr_t init_graph(graph_t *graph);
-extern vertex_t *graph_add_vertex(graph_t *graph);
+extern intptr_t graph_add_vertex(graph_t *graph, vertex_t *vertex);
 extern intptr_t graph_del_vertex(graph_t *graph, vertex_t *vertex);
 extern intptr_t graph_add_edege(graph_t *graph, vertex_t *from, vertex_t *to);
 extern intptr_t graph_del_edege(graph_t *graph, vertex_t *from, vertex_t *to);
