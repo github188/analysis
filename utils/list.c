@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 
@@ -13,6 +14,10 @@
              })
 
 // arraydlist
+#define FALSE (0)
+#define TRUE (!FALSE)
+
+
 typedef struct {
     intptr_t __prev__;
     intptr_t __next__;
@@ -37,6 +42,144 @@ void arraydlist_del(arraydlist_t *prev,
     next->__prev__ = node->__prev__;
     node->__next__ = 0;
     node->__prev__ = 0;
+}
+
+typedef struct {
+    intptr_t __obj_size__;
+    intptr_t __current_cache_size__;
+    int8_t *__cache__;
+    intptr_t *__service_condition_bitmap__;
+    arraydlist_t *__current_head__;
+} dlist_t;
+
+intptr_t init_dlist(dlist_t *dlist, intptr_t obj_size)
+{
+    int8_t *p = NULL;
+    intptr_t bitmap_size = 0;
+    intptr_t total_size = 0;
+
+    dlist->__obj_size__ = obj_size;
+    dlist->__current_cache_size__ = 8 * sizeof(intptr_t);
+    bitmap_size = dlist->__current_cache_size__ / 8;
+
+    total_size = (
+        bitmap_size
+        + (obj_size + sizeof(arraydlist_t)) * dlist->__current_cache_size__
+    );
+    p = (int8_t *)malloc(total_size);
+    (void)memset(p, 0, total_size);
+
+    dlist->__cache__ = p + bitmap_size;
+    dlist->__service_condition_bitmap__ = (intptr_t *)p;
+    dlist->__current_head__ = (arraydlist_t *)(p + bitmap_size + obj_size);
+
+    return 0;
+}
+
+static inline
+intptr_t __dlist_search_cache__(dlist_t *dlist, intptr_t set)
+{
+    intptr_t index;
+    intptr_t bitmap_size = dlist->__current_cache_size__ / 8;
+    intptr_t *iter = dlist->__service_condition_bitmap__;
+
+    for (index = 0; index < bitmap_size; index += sizeof(intptr_t)) {
+        if (~0 == iter[index]) {
+            continue;
+        }
+
+        for (intptr_t i = 0; TRUE; ++i) {
+            if ((1 << i) & iter[index]) {
+                continue;
+            }
+            if (set) {
+                iter[index] |= (1 << i);
+            }
+            index = index * sizeof(intptr_t) + i;
+            break;
+        }
+        break;
+    }
+
+    if (index >= bitmap_size) {
+        index = -1;
+    }
+
+    return index;
+}
+
+static inline
+void __dlist_resize__(dlist_t *dlist)
+{
+    int8_t *new_cache = NULL;
+    intptr_t new_cache_size = dlist->__current_cache_size__ * 2;
+    intptr_t new_bitmap_size = (dlist->__current_cache_size__ * 2) / 8;
+
+    new_cache = (int8_t *)malloc(new_bitmap_size + new_cache_size);
+    (void)memset(new_cache, 0, new_bitmap_size + new_cache_size);
+    (void)memcpy(new_cache,
+                 dlist->__service_condition_bitmap__,
+                 dlist->__current_cache_size__);
+    free(dlist->__service_condition_bitmap__);
+    dlist->__cache__ = new_cache + new_bitmap_size;
+    dlist->__service_condition_bitmap__ = (intptr_t *)new_cache;
+
+    return;
+}
+
+static inline
+void __dlist_add__(dlist_t *dlist, intptr_t index)
+{
+    arraydlist_t *prev;
+    arraydlist_t *next;
+    arraydlist_t *node;
+    intptr_t cache_obj_offset;
+
+    prev = dlist->__current_head__;
+    cache_obj_offset = (
+        (dlist->__obj_size__ + sizeof(arraydlist_t)) * prev->__next__
+    );
+    next = (arraydlist_t *)(
+        &dlist->__cache__[cache_obj_offset + dlist->__obj_size__]
+    );
+    cache_obj_offset = (
+        (dlist->__obj_size__ + sizeof(arraydlist_t)) * index
+    );
+    node = (arraydlist_t *)(
+        &dlist->__cache__[cache_obj_offset + dlist->__obj_size__]
+    );
+    arraydlist_add(prev, next, node, index);
+
+    return;
+}
+
+intptr_t dlist_add(dlist_t *dlist, void *obj)
+{
+    intptr_t index;
+    intptr_t cache_obj_offset;
+
+    index = __dlist_search_cache__(dlist, TRUE);
+    if (-1 == index) {
+        __dlist_resize__(dlist);
+        index = __dlist_search_cache__(dlist, TRUE);
+    }
+    assert(index >= 0);
+    cache_obj_offset = (dlist->__obj_size__ + sizeof(arraydlist_t)) * index;
+    (void)memcpy(&dlist->__cache__[cache_obj_offset],
+                 obj,
+                 dlist->__obj_size__);
+
+    // add to dlist
+    __dlist_add__(dlist, index);
+
+    return 0;
+}
+
+void exit_dlist(dlist_t *dlist)
+{
+    free(dlist->__service_condition_bitmap__);
+
+    return;
 }
 
 // arraylist
@@ -72,10 +215,17 @@ void list_remove(intptr_t *prev)
 }
 
 typedef struct {
-    int __x__;
+    intptr_t __x__;
     intptr_t __node__;
     arraydlist_t __dnode__;
 } data_t;
+
+void print_data(data_t data)
+{
+    (void)fprintf(stderr, "%d\n", data.__x__);
+
+    return;
+}
 
 int list_rm(intptr_t *head, int d)
 {
@@ -141,6 +291,7 @@ int main(int argc, char *argv[])
     intptr_t i = 0;
     data_t data[8];
 
+    print_data((data_t){9, 0, {0, 0}});
     memset(data, 0, sizeof(data));
     arraylist_add(&data[0].__node__, &data[2].__node__, 2);
     arraylist_add(&data[2].__node__, &data[3].__node__, 3);
@@ -153,6 +304,10 @@ int main(int argc, char *argv[])
     memset(data, 0, sizeof(data));
     arraydlist_add(&data[0].__dnode__,
                    &data[0].__dnode__,
+                   &data[0].__dnode__,
+                   0);
+    arraydlist_add(&data[0].__dnode__,
+                   &data[0].__dnode__,
                    &data[2].__dnode__,
                    2);
     arraydlist_add(&data[0].__dnode__,
@@ -163,12 +318,16 @@ int main(int argc, char *argv[])
                    &data[2].__dnode__,
                    &data[7].__dnode__,
                    7);
-
     /* that's NOT right, broke the dlist
     arraydlist_add(&data[2].__dnode__,
                    &data[3].__dnode__,
                    &data[7].__dnode__,
                    7);*/
+
+    /*arraydlist_del(&data[3].__dnode__,
+                   &data[2].__dnode__,
+                   &data[7].__dnode__);*/
+
     for (i = 0; i < (intptr_t)ARRAY_COUNT(data); ++i) {
         (void)fprintf(stderr,
                       "data[%d] : (%d, %d)\n",
