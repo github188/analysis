@@ -153,7 +153,7 @@ void __dlist_add__(dlist_t *dlist, intptr_t index)
     return;
 }
 
-intptr_t dlist_add(dlist_t *dlist, void *obj)
+intptr_t dlist_insert(dlist_t *dlist, void *obj)
 {
     intptr_t index;
     intptr_t cache_obj_offset;
@@ -287,7 +287,7 @@ int main(int argc, char *argv[])
     return 0;
 #endif
 
-#if 1
+#if 0
     intptr_t i = 0;
     data_t data[8];
 
@@ -335,6 +335,26 @@ int main(int argc, char *argv[])
                       data[i].__dnode__.__prev__,
                       data[i].__dnode__.__next__);
     }
+
+    return 0;
+#endif
+
+#if 1
+    typedef struct {
+        intptr_t a;
+        intptr_t b;
+    } mydata_t;
+
+    dlist_t dlist;
+    mydata_t x1 = {1, 2};
+    mydata_t x2 = {3, 4};
+    mydata_t x3 = {5, 6};
+
+    (void)init_dlist(&dlist, sizeof(mydata_t));
+    dlist_insert(&dlist, &x2);
+    dlist_insert(&dlist, &x3);
+    dlist_insert(&dlist, &x1);
+    exit_dlist(&dlist);
 
     return 0;
 #endif
