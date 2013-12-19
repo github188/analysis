@@ -5,13 +5,51 @@
 #include <assert.h>
 
 
-#define ARRAY_COUNT(array)  ((intptr_t)(sizeof(array) / sizeof(array[0])))
+#define SIZE_OF(x) ((intptr_t)sizeof(x))
+#define ARRAY_COUNT(array)  ((intptr_t)(SIZE_OF(array) / SIZE_OF(array[0])))
 #define OFFSET_OF(s, m)     ((size_t)&(((s *)0)->m ))
 #define CONTAINER_OF(ptr, type, member)     \
             ({\
                 const __typeof__(((type *)0)->member) *p_mptr = (ptr);\
                 (type *)((uint8_t *)p_mptr - OFFSET_OF(type, member));\
              })
+
+// bitmap
+typedef struct {
+    intptr_t *__matrix__;
+    intptr_t __len__;
+} bitmap_t;
+
+#define INIT_BITMAP(p, l) ((bitmap_t){p, l})
+#define EMPTY_BITMAP INIT_BITMAP(NULL, 0)
+
+static inline
+intptr_t bitmap_set(bitmap_t *bm, intptr_t pos, intptr_t set)
+{
+    intptr_t value = !!set;
+
+    if (pos < 0) {
+        return -1;
+    } else if (pos < (8 * bm->__len__)) {
+        intptr_t offset = (pos / 8);
+        intptr_t shift = pos - (offset * 8);
+
+        bm->__matrix__[offset] = (value << shift);
+
+        return 0;
+    } else {
+        return -1;
+    }
+}
+
+static inline
+void bitmap_clean(bitmap_t *bm)
+{
+    (void)memset(bm->__matrix__, 0, bm->__len__);
+
+    return;
+}
+
 
 // arraydlist
 #define FALSE (0)
@@ -46,32 +84,67 @@ void arraydlist_del(arraydlist_t *prev,
 
 typedef struct {
     intptr_t __obj_size__;
-    intptr_t __current_cache_size__;
     int8_t *__cache__;
+    intptr_t __cache_size__;
     intptr_t *__service_condition_bitmap__;
-    arraydlist_t *__current_head__;
+    arraydlist_t *__head__;
 } dlist_t;
+
+typedef struct {
+    int8_t *__base__;
+    intptr_t __offset__;
+} dlist_iter_t;
+
+static inline
+void *dlist_iter_ref(dlist_iter_t *iter)
+{
+    return NULL;
+}
+
+static inline
+void dlist_begin(dlist_t *dlist, dlist_iter_t *iter)
+{
+
+}
+
+static inline
+void dlist_end(dlist_t *dlist, dlist_iter_t *iter)
+{
+
+}
+
+static inline
+intptr_t dlist_next(dlist_t *dlist, intptr_t index)
+{
+    arraydlist_t *p = NULL;
+    intptr_t shell_size = dlist->__obj_size__ + SIZE_OF(arraydlist_t);
+
+    p = (arraydlist_t *)(
+        dlist->__cache__ + shell_size * index + dlist->__obj_size__
+    );
+
+    return p->__next__;
+}
 
 intptr_t init_dlist(dlist_t *dlist, intptr_t obj_size)
 {
     int8_t *p = NULL;
     intptr_t bitmap_size = 0;
+    intptr_t pack_size = obj_size + SIZE_OF(arraydlist_t);
     intptr_t total_size = 0;
 
     dlist->__obj_size__ = obj_size;
-    dlist->__current_cache_size__ = 8 * sizeof(intptr_t);
-    bitmap_size = dlist->__current_cache_size__ / 8;
+    dlist->__cache_size__ = 8 * SIZE_OF(intptr_t);
+    bitmap_size = (dlist->__cache_size__ - 1) / 8 + 1;
 
-    total_size = (
-        bitmap_size
-        + (obj_size + sizeof(arraydlist_t)) * dlist->__current_cache_size__
-    );
+    total_size = bitmap_size + pack_size * dlist->__cache_size__;
     p = (int8_t *)malloc(total_size);
     (void)memset(p, 0, total_size);
 
     dlist->__cache__ = p + bitmap_size;
     dlist->__service_condition_bitmap__ = (intptr_t *)p;
-    dlist->__current_head__ = (arraydlist_t *)(p + bitmap_size + obj_size);
+    dlist->__head__ = (arraydlist_t *)(p + bitmap_size + obj_size);
+    dlist->__service_condition_bitmap__[0] = 1;
 
     return 0;
 }
@@ -80,10 +153,10 @@ static inline
 intptr_t __dlist_search_cache__(dlist_t *dlist, intptr_t set)
 {
     intptr_t index;
-    intptr_t bitmap_size = dlist->__current_cache_size__ / 8;
+    intptr_t bitmap_size = (dlist->__cache_size__ - 1) / 8 + 1;
     intptr_t *iter = dlist->__service_condition_bitmap__;
 
-    for (index = 0; index < bitmap_size; index += sizeof(intptr_t)) {
+    for (index = 0; index < bitmap_size; index += SIZE_OF(intptr_t)) {
         if (~0 == iter[index]) {
             continue;
         }
@@ -95,13 +168,13 @@ intptr_t __dlist_search_cache__(dlist_t *dlist, intptr_t set)
             if (set) {
                 iter[index] |= (1 << i);
             }
-            index = index * sizeof(intptr_t) + i;
+            index = index * SIZE_OF(intptr_t) + i;
             break;
         }
         break;
     }
 
-    if (index >= bitmap_size) {
+    if (index >= (8 * bitmap_size)) {
         index = -1;
     }
 
@@ -112,14 +185,14 @@ static inline
 void __dlist_resize__(dlist_t *dlist)
 {
     int8_t *new_cache = NULL;
-    intptr_t new_cache_size = dlist->__current_cache_size__ * 2;
-    intptr_t new_bitmap_size = (dlist->__current_cache_size__ * 2) / 8;
+    intptr_t new_cache_size = dlist->__cache_size__ * 2;
+    intptr_t new_bitmap_size = (dlist->__cache_size__ * 2) / 8;
 
     new_cache = (int8_t *)malloc(new_bitmap_size + new_cache_size);
     (void)memset(new_cache, 0, new_bitmap_size + new_cache_size);
     (void)memcpy(new_cache,
                  dlist->__service_condition_bitmap__,
-                 dlist->__current_cache_size__);
+                 dlist->__cache_size__);
     free(dlist->__service_condition_bitmap__);
     dlist->__cache__ = new_cache + new_bitmap_size;
     dlist->__service_condition_bitmap__ = (intptr_t *)new_cache;
@@ -133,20 +206,18 @@ void __dlist_add__(dlist_t *dlist, intptr_t index)
     arraydlist_t *prev;
     arraydlist_t *next;
     arraydlist_t *node;
-    intptr_t cache_obj_offset;
+    intptr_t shell_size = dlist->__obj_size__ + SIZE_OF(arraydlist_t);
 
-    prev = dlist->__current_head__;
-    cache_obj_offset = (
-        (dlist->__obj_size__ + sizeof(arraydlist_t)) * prev->__next__
-    );
+    prev = dlist->__head__;
     next = (arraydlist_t *)(
-        &dlist->__cache__[cache_obj_offset + dlist->__obj_size__]
-    );
-    cache_obj_offset = (
-        (dlist->__obj_size__ + sizeof(arraydlist_t)) * index
+        dlist->__cache__
+        + shell_size * dlist->__head__->__next__
+        + dlist->__obj_size__
     );
     node = (arraydlist_t *)(
-        &dlist->__cache__[cache_obj_offset + dlist->__obj_size__]
+        dlist->__cache__
+        + shell_size * index
+        + dlist->__obj_size__
     );
     arraydlist_add(prev, next, node, index);
 
@@ -164,7 +235,7 @@ intptr_t dlist_insert(dlist_t *dlist, void *obj)
         index = __dlist_search_cache__(dlist, TRUE);
     }
     assert(index >= 0);
-    cache_obj_offset = (dlist->__obj_size__ + sizeof(arraydlist_t)) * index;
+    cache_obj_offset = (dlist->__obj_size__ + SIZE_OF(arraydlist_t)) * index;
     (void)memcpy(&dlist->__cache__[cache_obj_offset],
                  obj,
                  dlist->__obj_size__);
@@ -292,7 +363,7 @@ int main(int argc, char *argv[])
     data_t data[8];
 
     print_data((data_t){9, 0, {0, 0}});
-    memset(data, 0, sizeof(data));
+    memset(data, 0, SIZE_OF(data));
     arraylist_add(&data[0].__node__, &data[2].__node__, 2);
     arraylist_add(&data[2].__node__, &data[3].__node__, 3);
     arraylist_add(&data[3].__node__, &data[7].__node__, 7);
@@ -301,7 +372,7 @@ int main(int argc, char *argv[])
         (void)fprintf(stderr, "data[%d] : %d\n", i, data[i].__node__);
     }
 
-    memset(data, 0, sizeof(data));
+    memset(data, 0, SIZE_OF(data));
     arraydlist_add(&data[0].__dnode__,
                    &data[0].__dnode__,
                    &data[0].__dnode__,
@@ -350,10 +421,21 @@ int main(int argc, char *argv[])
     mydata_t x2 = {3, 4};
     mydata_t x3 = {5, 6};
 
-    (void)init_dlist(&dlist, sizeof(mydata_t));
+    (void)init_dlist(&dlist, SIZE_OF(mydata_t));
     dlist_insert(&dlist, &x2);
     dlist_insert(&dlist, &x3);
     dlist_insert(&dlist, &x1);
+    for (intptr_t iter = dlist.__head__->__next__;
+         iter != 0;
+         iter = dlist_next(&dlist, iter))
+    {
+        // mydata_t *d = CONTAINER_OF(iter, mydata_t, __dnode__);
+        intptr_t shell_size = dlist.__obj_size__ + SIZE_OF(arraydlist_t);
+
+        mydata_t *d = (mydata_t *)(dlist.__cache__ + shell_size * iter);
+
+        fprintf(stderr, "%d, %d\n", d->a, d->b);
+    }
     exit_dlist(&dlist);
 
     return 0;
