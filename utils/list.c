@@ -5,6 +5,8 @@
 #include <assert.h>
 
 
+#define FALSE (0)
+#define TRUE (!FALSE)
 #define SIZE_OF(x) ((intptr_t)sizeof(x))
 #define ARRAY_COUNT(array)  ((intptr_t)(SIZE_OF(array) / SIZE_OF(array[0])))
 #define OFFSET_OF(s, m)     ((size_t)&(((s *)0)->m ))
@@ -17,7 +19,7 @@
 // bitmap
 typedef struct {
     intptr_t *__matrix__;
-    intptr_t __len__;
+    intptr_t __len__; // bytes
 } bitmap_t;
 
 #define INIT_BITMAP(p, l) ((bitmap_t){p, l})
@@ -34,12 +36,55 @@ intptr_t bitmap_set(bitmap_t *bm, intptr_t pos, intptr_t set)
         intptr_t offset = (pos / 8);
         intptr_t shift = pos - (offset * 8);
 
-        bm->__matrix__[offset] = (value << shift);
+        bm->__matrix__[offset] |= (value << shift);
 
         return 0;
     } else {
         return -1;
     }
+}
+
+static inline
+intptr_t bitmap_is_set(bitmap_t *bm, intptr_t pos)
+{
+    if (pos < 0) {
+        return FALSE;
+    } else if (pos < (8 * bm->__len__)) {
+        intptr_t offset = (pos / 8);
+        intptr_t shift = pos - (offset * 8);
+
+        return !!(bm->__matrix__[offset] & (1 << shift));
+    } else {
+        return FALSE;
+    }
+}
+
+static inline
+intptr_t bitmap_search_first(bitmap_t *bm, intptr_t set)
+{
+    intptr_t index;
+    intptr_t value = (set ? 0 : (~0));
+
+    for (index = 0; index < bm->__len__; ++index) {
+        if (value == bm->__matrix__[index]) {
+            continue;
+        }
+
+        for (intptr_t j = 0; TRUE; ++j) {
+            if ((!!set) == (!((1 << j) & bm->__matrix__[index]))) {
+                continue;
+            }
+            index = index * 8 + j;
+            break;
+        }
+        break;
+    }
+
+    if (index >= 8 * bm->__len__) {
+        index = -1;
+    }
+
+    return index;
 }
 
 static inline
@@ -52,10 +97,6 @@ void bitmap_clean(bitmap_t *bm)
 
 
 // arraydlist
-#define FALSE (0)
-#define TRUE (!FALSE)
-
-
 typedef struct {
     intptr_t __prev__;
     intptr_t __next__;
@@ -84,9 +125,10 @@ void arraydlist_del(arraydlist_t *prev,
 
 typedef struct {
     intptr_t __obj_size__;
+    void *__segment__;
     int8_t *__cache__;
     intptr_t __cache_size__;
-    intptr_t *__service_condition_bitmap__;
+    bitmap_t __service_condition_bitmap__;
     arraydlist_t *__head__;
 } dlist_t;
 
@@ -128,7 +170,6 @@ intptr_t dlist_next(dlist_t *dlist, intptr_t index)
 
 intptr_t init_dlist(dlist_t *dlist, intptr_t obj_size)
 {
-    int8_t *p = NULL;
     intptr_t bitmap_size = 0;
     intptr_t pack_size = obj_size + SIZE_OF(arraydlist_t);
     intptr_t total_size = 0;
@@ -138,13 +179,17 @@ intptr_t init_dlist(dlist_t *dlist, intptr_t obj_size)
     bitmap_size = (dlist->__cache_size__ - 1) / 8 + 1;
 
     total_size = bitmap_size + pack_size * dlist->__cache_size__;
-    p = (int8_t *)malloc(total_size);
-    (void)memset(p, 0, total_size);
+    dlist->__segment__ = malloc(total_size);
+    (void)memset(dlist->__segment__, 0, total_size);
 
-    dlist->__cache__ = p + bitmap_size;
-    dlist->__service_condition_bitmap__ = (intptr_t *)p;
-    dlist->__head__ = (arraydlist_t *)(p + bitmap_size + obj_size);
-    dlist->__service_condition_bitmap__[0] = 1;
+    dlist->__cache__ = (int8_t *)dlist->__segment__ + bitmap_size;
+    dlist->__service_condition_bitmap__ = (bitmap_t){
+        (intptr_t *)dlist->__segment__, bitmap_size,
+    };
+    dlist->__head__ = (arraydlist_t *)(
+        (int8_t *)dlist->__segment__ + bitmap_size + obj_size
+    );
+    bitmap_set(&dlist->__service_condition_bitmap__, 0, 1);
 
     return 0;
 }
@@ -153,29 +198,10 @@ static inline
 intptr_t __dlist_search_cache__(dlist_t *dlist, intptr_t set)
 {
     intptr_t index;
-    intptr_t bitmap_size = (dlist->__cache_size__ - 1) / 8 + 1;
-    intptr_t *iter = dlist->__service_condition_bitmap__;
 
-    for (index = 0; index < bitmap_size; index += SIZE_OF(intptr_t)) {
-        if (~0 == iter[index]) {
-            continue;
-        }
-
-        for (intptr_t i = 0; TRUE; ++i) {
-            if ((1 << i) & iter[index]) {
-                continue;
-            }
-            if (set) {
-                iter[index] |= (1 << i);
-            }
-            index = index * SIZE_OF(intptr_t) + i;
-            break;
-        }
-        break;
-    }
-
-    if (index >= (8 * bitmap_size)) {
-        index = -1;
+    index = bitmap_search_first(&dlist->__service_condition_bitmap__, 0);
+    if ((-1 != index) && set) {
+        bitmap_set(&dlist->__service_condition_bitmap__, index, set);
     }
 
     return index;
@@ -186,16 +212,18 @@ void __dlist_resize__(dlist_t *dlist)
 {
     int8_t *new_cache = NULL;
     intptr_t new_cache_size = dlist->__cache_size__ * 2;
-    intptr_t new_bitmap_size = (dlist->__cache_size__ * 2) / 8;
+    intptr_t new_bitmap_size = (new_cache_size - 1) / 8 + 1;
 
     new_cache = (int8_t *)malloc(new_bitmap_size + new_cache_size);
     (void)memset(new_cache, 0, new_bitmap_size + new_cache_size);
     (void)memcpy(new_cache,
-                 dlist->__service_condition_bitmap__,
+                 dlist->__service_condition_bitmap__.__matrix__,
                  dlist->__cache_size__);
-    free(dlist->__service_condition_bitmap__);
+    free(dlist->__service_condition_bitmap__.__matrix__);
     dlist->__cache__ = new_cache + new_bitmap_size;
-    dlist->__service_condition_bitmap__ = (intptr_t *)new_cache;
+    dlist->__service_condition_bitmap__ = (bitmap_t){
+        (intptr_t *)new_cache, new_bitmap_size,
+    };
 
     return;
 }
@@ -248,7 +276,7 @@ intptr_t dlist_insert(dlist_t *dlist, void *obj)
 
 void exit_dlist(dlist_t *dlist)
 {
-    free(dlist->__service_condition_bitmap__);
+    free(dlist->__service_condition_bitmap__.__matrix__);
 
     return;
 }
