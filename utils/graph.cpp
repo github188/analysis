@@ -7,41 +7,24 @@
 
 
 typedef ::std::string StdString;
-template <typename T> using StdList = ::std::list<T>;
-template <typename KEY, typename VALUE> using StdMap = ::std::map<KEY, VALUE>;
+// c++11
+// template <typename T> using StdList = ::std::list<T>;
+// template <typename KEY, typename VALUE>
+    // using StdMap = ::std::map<KEY, VALUE>;
+template <typename T>
+class StdList : public ::std::list<T>
+{};
+template <typename KEY, typename VALUE>
+class StdMap : public ::std::map<KEY, VALUE>
+{};
 
 namespace uchiha
 {
     namespace ryuuzaki
     {
-        class Bitmap;
         class Graph;
     }
 }
-
-class uchiha::ryuuzaki::Bitmap
-{
-public:
-    intptr_t IsSet(intptr_t index) const
-    {
-        intptr_t offset = index / 8;
-        intptr_t shift = index - offset * 8;
-
-        if (index < 0) {
-            return false;
-        }
-
-        if (index < 8 * __size__) {
-
-        } else {
-            return false;
-        }
-    }
-
-private:
-    intptr_t *__cache__;
-    intptr_t __size__;
-};
 
 class uchiha::ryuuzaki::Graph
 {
@@ -64,6 +47,8 @@ private:
         intptr_t __weight__;
     };
 
+    typedef StdMap<StdString, Edge> VertexOutMap;
+
     class Vertex
     {
     public:
@@ -72,6 +57,16 @@ private:
             __out_map__[name] = edge;
 
             return;
+        }
+
+        intptr_t FindEdge(StdString const &name)
+        {
+            return (__out_map__.end() != __out_map__.find(name));
+        }
+
+        VertexOutMap const &GetOutMap(void) const
+        {
+            return __out_map__;
         }
 
         intptr_t EdgeCount(void) const
@@ -96,12 +91,13 @@ private:
                  __out_map__.end() != it;
                  ++it)
             {
-                ::std::cout << it->first << "(" << it->second.GetWeight() << "),";
+                ::std::cout << it->first
+                            << "(" << it->second.GetWeight() << "),";
             }
         }
 
     private:
-        StdMap<StdString, Edge> __out_map__;
+        VertexOutMap __out_map__;
     };
 
 public:
@@ -127,8 +123,12 @@ public:
     void Print(void) const;
 
 private:
+    typedef StdMap<StdString, Vertex> VertexMap;
+    typedef StdMap<StdString, intptr_t> VertexIndegreeMap;
+
     intptr_t __edge_count__;
-    StdMap<StdString, Vertex> __vertexes__;
+    VertexMap __vertexes__;
+    VertexIndegreeMap __indegree_of_vertexes__;
 };
 
 ::uchiha::ryuuzaki::Graph::Graph(void)
@@ -146,6 +146,7 @@ intptr_t ::uchiha::ryuuzaki::Graph::Init(void)
 void ::uchiha::ryuuzaki::Graph::AddVertex(StdString name)
 {
     __vertexes__[name];
+    __indegree_of_vertexes__[name];
 
     return;
 }
@@ -156,7 +157,7 @@ intptr_t ::uchiha::ryuuzaki::Graph::DelVertex(StdString name)
         return -1;
     }
 
-    for (StdMap<StdString, Vertex>::iterator it = __vertexes__.begin();
+    for (VertexMap::iterator it = __vertexes__.begin();
          __vertexes__.end() != it;
          ++it)
     {
@@ -165,6 +166,16 @@ intptr_t ::uchiha::ryuuzaki::Graph::DelVertex(StdString name)
         }
     }
     __edge_count__ -= __vertexes__[name].EdgeCount();
+
+    VertexOutMap const &out_map = __vertexes__[name].GetOutMap();
+    for (VertexOutMap::const_iterator it = out_map.begin();
+         out_map.end() != it;
+         ++it)
+    {
+        --__indegree_of_vertexes__[it->first];
+    }
+
+    __indegree_of_vertexes__.erase(name);
     __vertexes__.erase(name);
 
     return 0;
@@ -178,7 +189,10 @@ void ::uchiha::ryuuzaki::Graph::AddEdge(StdString from,
 
     AddVertex(from);
     AddVertex(to);
+
     __vertexes__[from].AddEdge(to, e);
+    ++__indegree_of_vertexes__[to];
+
     ++__edge_count__;
 
     return;
@@ -194,6 +208,8 @@ intptr_t ::uchiha::ryuuzaki::Graph::DelEdge(StdString from, StdString to)
         return -1;
     }
 
+    --__indegree_of_vertexes__[to];
+
     --__edge_count__;
 
     return 0;
@@ -203,11 +219,12 @@ void ::uchiha::ryuuzaki::Graph::Print(void) const
 {
     ::std::cout << "total vertexes: " << VertexCount()  << ::std::endl;
     ::std::cout << "total edges: " << EdgeCount()  << ::std::endl;
-    for (StdMap<StdString, Vertex>::const_iterator it = __vertexes__.begin();
+    for (VertexMap::const_iterator it = __vertexes__.begin();
          __vertexes__.end() != it;
          ++it)
     {
-        ::std::cout << it->first << ": ";
+        ::std::cout << it->first
+                    << "(" << __indegree_of_vertexes__.at(it->first) << "): ";
         it->second.Print();
         ::std::cout << ::std::endl;
     }
@@ -219,6 +236,9 @@ int main(int argc, char *argv[])
 {
     ::uchiha::ryuuzaki::Graph g;
 
+#define TEST 0
+#if 0 == TEST
+
     g.AddEdge("home", "school", 12);
     g.AddEdge("home", "company");
     g.AddEdge("guangzhou", "shenzhen", 100);
@@ -227,11 +247,28 @@ int main(int argc, char *argv[])
     assert(0 == g.DelEdge("home", "school"));
     assert(0 == g.DelEdge("home", "company"));
     assert(-1 == g.DelEdge("home", "home"));
-    assert(-1 == g.DelEdge("shenzhen", "guangzhou"));*/
+    assert(-1 == g.DelEdge("shenzhen", "guangzhou"));
+    assert(-1 == g.DelEdge("guangzhou", "shenzhen"));*/
     g.Print();
 
-    ::std::map<int, int> mmm;
-    mmm.erase(3);
+#elif 1 == TEST
+
+    g.AddEdge("v1", "v2");
+    g.AddEdge("v1", "v3");
+    g.AddEdge("v1", "v4");
+    g.AddEdge("v2", "v4");
+    g.AddEdge("v2", "v5");
+    g.AddEdge("v3", "v6");
+    g.AddEdge("v4", "v3");
+    g.AddEdge("v4", "v6");
+    g.AddEdge("v4", "v7");
+    g.AddEdge("v5", "v4");
+    g.AddEdge("v5", "v7");
+    g.AddEdge("v7", "v6");
+
+    g.Print();
+
+#endif
 
     return 0;
 }
