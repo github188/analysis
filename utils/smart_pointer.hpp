@@ -26,35 +26,6 @@ public:
     virtual ~object(void)
     {}
 
-public:
-    static void *operator new(std::size_t size)
-    {
-        return calloc(1, size);
-    }
-    static void operator delete(void *p)
-    {
-        free(p);
-
-        return;
-    }
-    static void *operator new[](std::size_t size, std::size_t obj_size)
-    {
-        intptr_t p = reinterpret_cast<intptr_t>(calloc(1, size));
-        if (size > obj_size) {
-            p |= 1;
-        }
-
-        return reinterpret_cast<void *>(p);
-    }
-    static void operator delete[](void *p)
-    {
-        intptr_t addr = reinterpret_cast<intptr_t>(p);
-        addr &= ((~0) - 1);
-        free(reinterpret_cast<void *>(addr));
-
-        return;
-    }
-
 private:
     // just for smart_pointer
     void __ref_increase__(void)
@@ -80,28 +51,22 @@ private:
 template <typename TYPE> class e7::utils::smart_pointer
 {
 public:
-    smart_pointer(void)
-        : __is_array__(false), __obj__(NULL), __fastmutex__(NULL)
-    {}
-    smart_pointer(object *obj)
-        : __is_array__(false), __obj__(NULL), __fastmutex__(NULL)
-    {
-        object *p = NULL;
+    static smart_pointer null_pointer;
 
+public:
+    smart_pointer(object *obj = NULL, intptr_t array = false)
+        : __is_array__(array), __obj__(NULL), __fastmutex__(NULL)
+    {
         if (NULL == obj) {
             return;
         }
 
-        p = reinterpret_cast<object *>(
-            (reinterpret_cast<intptr_t>(obj) & ((~0) - 1))
-        );
         try {
-            __obj__ = dynamic_cast<TYPE *>(p);
+            __obj__ = dynamic_cast<TYPE *>(obj);
         } catch (...) { // std::bad_cast
             assert(0);
         }
         this->__fastmutex__ = __obj__->__fastmutex__;
-        __is_array__ = !(obj == __obj__);
 
         assert(0 == pthread_mutex_lock(this->__fastmutex__));
         __obj__->__ref_increase__();
@@ -171,6 +136,20 @@ public:
     {
         return *__obj__;
     }
+    TYPE &operator [](std::size_t index)
+    {
+        if (!__is_array__) {
+            return __obj__[0];
+        } else {
+            return __obj__[index];
+        }
+    }
+    void release(void)
+    {
+        __release__();
+
+        return;
+    }
 
 private:
     void __release__(void)
@@ -208,3 +187,6 @@ private:
     TYPE *__obj__;
     pthread_mutex_t *__fastmutex__;
 };
+
+template <typename TYPE> typename e7::utils::smart_pointer<TYPE>
+e7::utils::smart_pointer<TYPE>::null_pointer;
