@@ -18,13 +18,24 @@ class e7::utils::object
 
 public:
     explicit object(void)
-        : __ref_count__(0), __fastmutex__(NULL)
+        : __ref_count__(0), __count_mutex__(NULL)
     {
-        __fastmutex__ = (pthread_mutex_t *)calloc(1, sizeof(pthread_mutex_t));
-        pthread_mutex_init(__fastmutex__, NULL);
+        __count_mutex__ = (pthread_mutex_t *)calloc(1, sizeof(pthread_mutex_t));
+        pthread_mutex_init(__count_mutex__, NULL);
+    }
+    explicit object(object const &other)
+        : __ref_count__(0), __count_mutex__(NULL)
+    {
+        __count_mutex__ = (pthread_mutex_t *)calloc(1, sizeof(pthread_mutex_t));
+        pthread_mutex_init(__count_mutex__, NULL);
     }
     virtual ~object(void)
     {}
+
+private:
+    // you should use std::vector as a single object
+    void *operator new[](size_t size);
+    void operator delete[](void *p);
 
 private:
     // just for smart_pointer
@@ -45,7 +56,7 @@ private:
 
 private:
     intptr_t __ref_count__;
-    pthread_mutex_t *__fastmutex__;
+    pthread_mutex_t *__count_mutex__;
 };
 
 template <typename TYPE> class e7::utils::smart_pointer
@@ -54,8 +65,8 @@ public:
     static smart_pointer null_pointer;
 
 public:
-    smart_pointer(object *obj = NULL, intptr_t array = false)
-        : __is_array__(array), __obj__(NULL), __fastmutex__(NULL)
+    smart_pointer(object *obj = NULL)
+        : __obj__(NULL), __count_mutex__(NULL)
     {
         if (NULL == obj) {
             return;
@@ -66,17 +77,17 @@ public:
         } catch (...) { // std::bad_cast
             assert(0);
         }
-        this->__fastmutex__ = __obj__->__fastmutex__;
+        this->__count_mutex__ = __obj__->__count_mutex__;
 
-        assert(0 == pthread_mutex_lock(this->__fastmutex__));
+        assert(0 == pthread_mutex_lock(this->__count_mutex__));
         __obj__->__ref_increase__();
-        assert(0 == pthread_mutex_unlock(this->__fastmutex__));
+        assert(0 == pthread_mutex_unlock(this->__count_mutex__));
 
         return;
     }
 
     explicit smart_pointer(smart_pointer const &other)
-        : __is_array__(false), __obj__(NULL), __fastmutex__(NULL)
+        : __obj__(NULL), __count_mutex__(NULL)
     {
         *this = other;
     }
@@ -86,13 +97,12 @@ public:
         __release__();
 
         if (other.not_null()) {
-            this->__is_array__ = other.__is_array__;
             this->__obj__ = other.__obj__;
-            this->__fastmutex__ = other.__fastmutex__;
+            this->__count_mutex__ = other.__count_mutex__;
 
-            assert(0 == pthread_mutex_lock(this->__fastmutex__));
+            assert(0 == pthread_mutex_lock(this->__count_mutex__));
             this->__obj__->__ref_increase__();
-            assert(0 == pthread_mutex_unlock(this->__fastmutex__));
+            assert(0 == pthread_mutex_unlock(this->__count_mutex__));
         }
 
         return *this;
@@ -136,17 +146,24 @@ public:
     {
         return *__obj__;
     }
-    TYPE &operator [](std::size_t index)
-    {
-        if (!__is_array__) {
-            return __obj__[0];
-        } else {
-            return __obj__[index];
-        }
-    }
     void release(void)
     {
         __release__();
+
+        return;
+    }
+
+    void copy(smart_pointer const &other)
+    {
+        __release__();
+        if (other.not_null()) {
+            __obj__ = new TYPE(*static_cast<smart_pointer>(other));
+            __count_mutex__ = __obj__->__count_mutex__;
+
+            assert(0 == pthread_mutex_lock(__count_mutex__));
+            __obj__->__ref_increase__();
+            assert(0 == pthread_mutex_unlock(__count_mutex__));
+        }
 
         return;
     }
@@ -160,32 +177,27 @@ private:
             return;
         }
 
-        assert(0 == pthread_mutex_lock(this->__fastmutex__));
+        assert(0 == pthread_mutex_lock(this->__count_mutex__));
         __obj__->__ref_decrease__();
         ref_count = __obj__->__get_ref_count__();
         if (0 == ref_count) {
-            if (__is_array__) {
-                delete[] __obj__;
-            } else {
-                delete __obj__;
-            }
+            delete __obj__;
         }
         __obj__ = NULL;
-        assert(0 == pthread_mutex_unlock(this->__fastmutex__));
+        assert(0 == pthread_mutex_unlock(this->__count_mutex__));
 
         if (0 == ref_count) {
-            pthread_mutex_destroy(this->__fastmutex__);
-            free(this->__fastmutex__);
+            pthread_mutex_destroy(this->__count_mutex__);
+            free(this->__count_mutex__);
         }
-        this->__fastmutex__ = NULL;
+        this->__count_mutex__ = NULL;
 
         return;
     }
 
 private:
-    intptr_t __is_array__;
     TYPE *__obj__;
-    pthread_mutex_t *__fastmutex__;
+    pthread_mutex_t *__count_mutex__;
 };
 
 template <typename TYPE> typename e7::utils::smart_pointer<TYPE>
