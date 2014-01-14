@@ -1,4 +1,5 @@
 #! /usr/bin/env python
+# -*- coding:utf-8 -*-
 
 import os
 import sys
@@ -7,9 +8,31 @@ import socket
 import select
 import multiprocessing
 
+def recv_data(*active_fds):
+    print active_fds
+    for fd in active_fds:
+        data, addr = "", None
+        while True:
+            try:
+                tmp_data, addr = fd.recvfrom(1500)
+                data += tmp_data
+            except Exception:
+                print "recv failed"
+                break
+        print addr, data
+
+
 def team(*args):
-    epfd = select.epoll()
+    time.sleep(5)
     print "pid:", os.getpid()
+
+    servfd.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    for sock in args:
+        sock.sendto("vote|test",
+                    ('<broadcast>', 10001))
+    servfd.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 0)
+
+    epfd = select.epoll()
 
     try:
         servers = {}
@@ -19,22 +42,20 @@ def team(*args):
             epfd.register(sock.fileno(), select.EPOLLIN | select.EPOLLET)
 
         while True:
-            data, addr = None, None
-            events = epfd.poll(0.1)
+            active_fds = []
+
+            events = epfd.poll(1)
+
             for fileno, event in events:
                 if event & select.EPOLLIN:
-                    time.sleep(1)
-                    try:
-                        while True:
-                            (data, addr) = servers[fileno].recvfrom(1500)
-                            print addr, data
-                        servers[fileno].sendto('aaa', addr)
-                    except Exception:
-                        pass
+                    active_fds.append(servers[fileno])
                 if event & select.EPOLLHUP:
                     print 'epoll hup'
                 if event & select.EPOLLOUT:
                     print 'epoll out'
+
+            if active_fds:
+                recv_data(*active_fds)
 
     finally:
         for sock in args:
@@ -56,6 +77,7 @@ if "__main__" == __name__:
     test = True
     servfd = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
+    servfd.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     servfd.setblocking(0)
     servfd.bind(('0.0.0.0', 10001))
 
