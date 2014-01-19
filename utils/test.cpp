@@ -1,6 +1,7 @@
 #include <iostream>
 #include "smart_pointer.hpp"
 #include "inheritance_ship.hpp"
+#include "adv_string.h"
 
 
 typedef e7::utils::object object_t;
