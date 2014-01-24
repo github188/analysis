@@ -101,10 +101,15 @@ class graph:
         g = copy.deepcopy(self)
 
         while g.__vertexes_indegree:
+            size_before = len(g.__vertexes_indegree)
             for k in g.__vertexes_indegree.keys():
                 if 0 == g.__vertexes_indegree[k]:
                     rslt.append(k)
                     g.del_vertex(k)
+            size_after = len(g.__vertexes_indegree)
+
+            if size_before == size_after:
+                return []
 
         return rslt
 
@@ -118,6 +123,7 @@ class graph:
 
 if "__main__" == __name__:
     g = graph()
+    '''
     g.add_edge("v1", "v2")
     g.add_edge("v1", "v3")
     g.add_edge("v1", "v4")
@@ -130,5 +136,9 @@ if "__main__" == __name__:
     g.add_edge("v5", "v4")
     g.add_edge("v5", "v7")
     g.add_edge("v7", "v6")
+    '''
+    g.add_edge("v1", "v2")
+    g.add_edge("v2", "v3")
+    g.add_edge("v3", "v1")
     print g.topsort()
     g.printme()
