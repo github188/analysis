@@ -70,7 +70,7 @@ class graph:
 
         return 0
 
-    def add_edge(self, frm, to, weight = 0):
+    def add_edge(self, frm, to, weight = 1):
         if frm not in self.__vertexes.keys():
             self.__add_vertex(frm)
         if to not in self.__vertexes.keys():
@@ -113,6 +113,11 @@ class graph:
 
         return rslt
 
+    ''' dijkstra '''
+    def dijkstra(self, name):
+        if name not in self.__vertexes.keys():
+            return []
+
     def printme(self):
         print self.__vertexes
         print self.__vertexes_indegree
@@ -123,7 +128,8 @@ class graph:
 
 if "__main__" == __name__:
     g = graph()
-    '''
+
+    ''' top sort
     g.add_edge("v1", "v2")
     g.add_edge("v1", "v3")
     g.add_edge("v1", "v4")
@@ -136,9 +142,25 @@ if "__main__" == __name__:
     g.add_edge("v5", "v4")
     g.add_edge("v5", "v7")
     g.add_edge("v7", "v6")
-    '''
-    g.add_edge("v1", "v2")
-    g.add_edge("v2", "v3")
-    g.add_edge("v3", "v1")
     print g.topsort()
     g.printme()
+    '''
+
+    ''' dijkstra '''
+    g.add_edge("A", "B", 20)
+    g.add_edge("A", "D", 80)
+    g.add_edge("A", "G", 90)
+    g.add_edge("B", "F", 10)
+    g.add_edge("F", "C", 10)
+    g.add_edge("F", "D", 40)
+    g.add_edge("C", "D", 10)
+    g.add_edge("C", "F", 50)
+    g.add_edge("C", "H", 20)
+    g.add_edge("D", "C", 10)
+    g.add_edge("D", "G", 20)
+    g.add_edge("G", "A", 20)
+    g.add_edge("E", "G", 30)
+    g.add_edge("E", "B", 50)
+    print g.dijkstra("Z")
+
+    sys.exit(0)
