@@ -95,9 +95,18 @@ class graph:
 
         return 0
 
+    ''' 拓扑排序 '''
     def topsort(self):
+        rslt = []
         g = copy.deepcopy(self)
-        g.printme()
+
+        while g.__vertexes_indegree:
+            for k in g.__vertexes_indegree.keys():
+                if 0 == g.__vertexes_indegree[k]:
+                    rslt.append(k)
+                    g.del_vertex(k)
+
+        return rslt
 
     def printme(self):
         print self.__vertexes
@@ -109,16 +118,17 @@ class graph:
 
 if "__main__" == __name__:
     g = graph()
-    g.add_edge("home", "school")
-    g.add_edge("home", "company")
-    g.del_edge("home", "company")
-    g.add_edge("home", "company")
-    g.add_edge("home", "company")
-    g.add_edge("home", "company")
-
-    g.add_vertex("1")
-    g.add_vertex("2")
-    g.del_edge("1", "2")
-    g.add_edge("1", "2")
-    g.del_vertex("home")
-    g.topsort()
+    g.add_edge("v1", "v2")
+    g.add_edge("v1", "v3")
+    g.add_edge("v1", "v4")
+    g.add_edge("v2", "v4")
+    g.add_edge("v2", "v5")
+    g.add_edge("v3", "v6")
+    g.add_edge("v4", "v3")
+    g.add_edge("v4", "v6")
+    g.add_edge("v4", "v7")
+    g.add_edge("v5", "v4")
+    g.add_edge("v5", "v7")
+    g.add_edge("v7", "v6")
+    print g.topsort()
+    g.printme()
