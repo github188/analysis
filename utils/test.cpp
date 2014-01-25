@@ -2,6 +2,7 @@
 #include "smart_pointer.hpp"
 #include "inheritance_ship.hpp"
 #include "adv_string.h"
+#include "stl_string_ex.hpp"
 
 
 typedef e7::utils::object object_t;
@@ -42,6 +43,14 @@ int main(int argc, char *argv[])
     p1 = null_pointer;
     p2 = null_pointer;
     std::cout << "end" << std::endl;
+
+    // string_ex
+    std::string_ex s("hello");
+
+    std::string sss = static_cast<std::string>(s);
+    static_cast<std::string &>(s).clear();
+    std::cout << sss << std::endl;
+    std::cout << static_cast<std::string &>(s) << std::endl;
 
     return 0;
 }
