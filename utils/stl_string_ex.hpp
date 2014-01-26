@@ -9,8 +9,7 @@ class string_ex
 public:
     explicit string_ex(char const *s)
         : __str__(s)
-    {
-    }
+    {}
 
 public:
     operator std::string &(void)
@@ -18,21 +17,28 @@ public:
         return __str__;
     }
 
-    std::list<std::string> to_list(std::list<std::string> &l,
-                                   std::string const &dlmt) const
+    void to_list(std::list<std::string> &l, std::string const &dlmt) const
     {
-        size_t iter_id = 0;
+        std::string::size_type iter_id_l = 0;
+        std::string::size_type str_size = __str__.size();
+        std::string::size_type dlmt_size = dlmt.size();
 
-        while (1) {
-            size_t iter_id_tmp = __str__.find(iter_id);
+        while (iter_id_l < str_size) {
+            std::string::size_type iter_id_r = __str__.find(dlmt, iter_id_l);
 
-            if (string::npos == iter_id_tmp) {
+            if (string::npos == iter_id_r) {
+                l.push_back(__str__.substr(iter_id_l));
                 break;
             }
 
+            std::string elmt(__str__.substr(iter_id_l, iter_id_r - iter_id_l));
+            if (!elmt.empty()) {
+                l.push_back(__str__.substr(iter_id_l, iter_id_r - iter_id_l));
+            }
+            iter_id_l = iter_id_r + dlmt_size;
         }
 
-        return l;
+        return;
     }
 
 private:
