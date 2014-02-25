@@ -1,16 +1,33 @@
 #include <linux/init.h>
 #include <linux/module.h>
+#include <linux/types.h>
+#include <linux/fs.h>
 
 MODULE_LICENSE("Dual BSD/GPL");
 
-static int hello_init(void)
+static dev_t devno;
+
+static int __init hello_init(void)
 {
-    printk(KERN_ALERT "Hello, world\n");
-    return 0;
+    int rslt;
+
+    printk(KERN_ALERT "scull0 init\n");
+
+    rslt = alloc_chrdev_region(&devno, 0, 1, "scull0");
+    if (0 == rslt) {
+        printk(KERN_ALERT "scull0 dev_t: %d, %d\n",
+               MAJOR(devno),
+               MINOR(devno));
+    }
+
+    return rslt;
 }
-static void hello_exit(void)
+static void __exit hello_exit(void)
 {
-    printk(KERN_ALERT "Goodbye, cruel world\n");
+    unregister_chrdev_region(devno, 1);
+    printk(KERN_ALERT "scull0 exit\n");
+
+    return;
 }
 
 module_init(hello_init);
