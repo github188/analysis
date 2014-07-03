@@ -6,6 +6,9 @@
 #include <fcntl.h>
 
 
+#define BUF_SIZE    4096
+
+
 void dump_mem(void *p, int size)
 {
     char *seg16;
@@ -35,7 +38,7 @@ static int fake_main(char const *filename)
 {
     int rslt;
     int fd;
-    char buf[256];
+    char *buf = (char *)malloc(BUF_SIZE);
 
     fd = open(filename, O_RDONLY);
     if (-1 == fd) {
@@ -47,7 +50,7 @@ static int fake_main(char const *filename)
     while (1) {
         ssize_t current_read_size;
 
-        current_read_size = read(fd, buf, sizeof(buf));
+        current_read_size = read(fd, buf, BUF_SIZE);
         if (current_read_size <= 0) {
             break;
         }
@@ -58,6 +61,7 @@ static int fake_main(char const *filename)
         rslt = 0;
         (void)close(fd);
 EXIT:
+        free(buf);
         break;
     } while (0);
 
