@@ -26,8 +26,8 @@ SELECTOR_CODE32     equ     label_desc_code32 - label_gdt_null
 SELECTOR_VIDEO      equ     label_desc_video - label_gdt_null
 
 
-[BITS 16]
 [SECTION .s16]
+[BITS 16]
 LABEL_BEGIN:
     mov ax, cs
     mov ds, ax
@@ -39,9 +39,9 @@ LABEL_BEGIN:
     xor eax, eax
     mov ax, cs
     shl eax, 4
-    add eax, label_desc_code32
+    add eax, LABEL_SEG_CODE32
     mov word [label_desc_code32 + 2], ax
-    mov eax, 16
+    shr eax, 16
     mov byte [label_desc_code32 + 4], al
     mov byte [label_desc_code32 + 7], ah
 
@@ -59,13 +59,13 @@ LABEL_BEGIN:
     cli
 
     ; 打开a20地址线
-    ;push ax
-    ;mov ax, 02401h ; 如果是0x2400则关闭A20地址线
-    ;int 15h
-    ;pop ax
-    in al, 92h
-    or al, 00000010b
-    out 92h, al
+    push ax
+    mov ax, 02401h ; 如果是0x2400则关闭A20地址线
+    int 15h
+    pop ax
+    ;in al, 92h
+    ;or al, 00000010b
+    ;out 92h, al
 
     ; 开启保护模式
     mov eax, cr0
@@ -77,8 +77,8 @@ LABEL_BEGIN:
 ; END OF LABEL_BEGIN
 
 
-[BITS 32]
 [SECTION .s32]
+[BITS 32]
 LABEL_SEG_CODE32:
     mov ax, SELECTOR_VIDEO
     mov gs, ax
