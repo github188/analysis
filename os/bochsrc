@@ -1,0 +1,7 @@
+megs: 32
+romimage: file=/opt/compile/share/bochs/BIOS-bochs-latest
+vgaromimage: file=/opt/compile/share/bochs/VGABIOS-lgpl-latest
+floppya: 1_44=a.img, status=inserted
+boot: floppy
+mouse: enabled=0
+keyboard_mapping: enabled=1, map=/opt/compile/share/bochs/keymaps/x11-pc-us.map
