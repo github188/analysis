@@ -63,13 +63,14 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     /* force localtime update with a new timezone */
 
     tp = ngx_timeofday();
-    tp->sec = 0;
+    tp->sec = 0; // 这会导致秒级时间流逝而强制更新所有时间数据
 
     ngx_time_update();
 
 
     log = old_cycle->log;
 
+    // 创建内存池，然后在内存池中创建cycle，再将该内存池挂到cycle上
     pool = ngx_create_pool(NGX_CYCLE_POOL_SIZE, log);
     if (pool == NULL) {
         return NULL;
@@ -87,6 +88,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     cycle->new_log.log_level = NGX_LOG_ERR;
     cycle->old_cycle = old_cycle;
 
+    // 配置前缀
     cycle->conf_prefix.len = old_cycle->conf_prefix.len;
     cycle->conf_prefix.data = ngx_pstrdup(pool, &old_cycle->conf_prefix);
     if (cycle->conf_prefix.data == NULL) {
@@ -94,6 +96,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
         return NULL;
     }
 
+    // 通用前缀
     cycle->prefix.len = old_cycle->prefix.len;
     cycle->prefix.data = ngx_pstrdup(pool, &old_cycle->prefix);
     if (cycle->prefix.data == NULL) {
@@ -101,6 +104,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
         return NULL;
     }
 
+    // 配置文件
     cycle->conf_file.len = old_cycle->conf_file.len;
     cycle->conf_file.data = ngx_pnalloc(pool, old_cycle->conf_file.len + 1);
     if (cycle->conf_file.data == NULL) {
@@ -110,6 +114,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     ngx_cpystrn(cycle->conf_file.data, old_cycle->conf_file.data,
                 old_cycle->conf_file.len + 1);
 
+    // 配置参数
     cycle->conf_param.len = old_cycle->conf_param.len;
     cycle->conf_param.data = ngx_pstrdup(pool, &old_cycle->conf_param);
     if (cycle->conf_param.data == NULL) {
@@ -117,7 +122,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
         return NULL;
     }
 
-
+    // 路径数组，每个元素又是一个数组
     n = old_cycle->pathes.nelts ? old_cycle->pathes.nelts : 10;
 
     cycle->pathes.elts = ngx_pcalloc(pool, n * sizeof(ngx_path_t *));
@@ -132,6 +137,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     cycle->pathes.pool = pool;
 
 
+    // 打开的文件列表
     if (old_cycle->open_files.part.nelts) {
         n = old_cycle->open_files.part.nelts;
         for (part = old_cycle->open_files.part.next; part; part = part->next) {
@@ -150,6 +156,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     }
 
 
+    // 共享内存
     if (old_cycle->shared_memory.part.nelts) {
         n = old_cycle->shared_memory.part.nelts;
         for (part = old_cycle->shared_memory.part.next; part; part = part->next)
@@ -168,6 +175,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
         return NULL;
     }
 
+    // 监听数组
     n = old_cycle->listening.nelts ? old_cycle->listening.nelts : 10;
 
     cycle->listening.elts = ngx_pcalloc(pool, n * sizeof(ngx_listening_t));
@@ -182,9 +190,11 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     cycle->listening.pool = pool;
 
 
+    // 可重用连接队列
     ngx_queue_init(&cycle->reusable_connections_queue);
 
 
+    // 模块配置数组列表
     cycle->conf_ctx = ngx_pcalloc(pool, ngx_max_module * sizeof(void *));
     if (cycle->conf_ctx == NULL) {
         ngx_destroy_pool(pool);
@@ -192,6 +202,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     }
 
 
+    // 主机名
     if (gethostname(hostname, NGX_MAXHOSTNAMELEN) == -1) {
         ngx_log_error(NGX_LOG_EMERG, log, ngx_errno, "gethostname() failed");
         ngx_destroy_pool(pool);
@@ -212,6 +223,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     ngx_strlow(cycle->hostname.data, (u_char *) hostname, cycle->hostname.len);
 
 
+    // 创建核心模块配置，通过调用模块的create_conf函数
     for (i = 0; ngx_modules[i]; i++) {
         if (ngx_modules[i]->type != NGX_CORE_MODULE) {
             continue;
@@ -225,6 +237,8 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
                 ngx_destroy_pool(pool);
                 return NULL;
             }
+
+            // conf_ctx当前指向模块配置数组，现在保存核心模块创建的配置
             cycle->conf_ctx[ngx_modules[i]->index] = rv;
         }
     }
@@ -233,6 +247,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     senv = environ;
 
 
+    // 初始化conf
     ngx_memzero(&conf, sizeof(ngx_conf_t));
     /* STUB: init array ? */
     conf.args = ngx_array_create(pool, 10, sizeof(ngx_str_t));
@@ -248,7 +263,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     }
 
 
-    conf.ctx = cycle->conf_ctx;
+    conf.ctx = cycle->conf_ctx; // 接管模块配置数组
     conf.cycle = cycle;
     conf.pool = pool;
     conf.log = log;

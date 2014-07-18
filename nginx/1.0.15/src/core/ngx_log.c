@@ -268,6 +268,7 @@ ngx_log_init(u_char *prefix)
     u_char  *p, *name;
     size_t   nlen, plen;
 
+    // 初始化ngx_log
     ngx_log.file = &ngx_log_file;
     ngx_log.log_level = NGX_LOG_NOTICE;
 
@@ -281,6 +282,7 @@ ngx_log_init(u_char *prefix)
     nlen = ngx_strlen(name);
 
     if (nlen == 0) {
+        // 如果没有定义错误日志路径则输出到标准错误
         ngx_log_file.fd = ngx_stderr;
         return &ngx_log;
     }
@@ -292,7 +294,9 @@ ngx_log_init(u_char *prefix)
 #else
     if (name[0] != '/') {
 #endif
+        // name为绝对路径
 
+        // 计算前缀长度
         if (prefix) {
             plen = ngx_strlen(prefix);
 
@@ -306,6 +310,7 @@ ngx_log_init(u_char *prefix)
         }
 
         if (plen) {
+            // 存在前缀，则覆盖默认路径
             name = malloc(plen + nlen + 2);
             if (name == NULL) {
                 return NULL;
@@ -323,6 +328,7 @@ ngx_log_init(u_char *prefix)
         }
     }
 
+    // 追加打开日志文件
     ngx_log_file.fd = ngx_open_file(name, NGX_FILE_APPEND,
                                     NGX_FILE_CREATE_OR_OPEN,
                                     NGX_FILE_DEFAULT_ACCESS);

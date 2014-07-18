@@ -325,8 +325,10 @@ main(int argc, char *const *argv)
         return 1;
     }
 
+    // 模块计数
     ngx_max_module = 0;
     for (i = 0; ngx_modules[i]; i++) {
+        // 本模块在模块数组中的偏移值
         ngx_modules[i]->index = ngx_max_module++;
     }
 
@@ -802,11 +804,13 @@ ngx_save_argv(ngx_cycle_t *cycle, int argc, char *const *argv)
     ngx_os_argv = (char **) argv;
     ngx_argc = argc;
 
+    // 为命令行参数分配内存
     ngx_argv = ngx_alloc((argc + 1) * sizeof(char *), cycle->log);
     if (ngx_argv == NULL) {
         return NGX_ERROR;
     }
 
+    // 缓存所有命令行参数
     for (i = 0; i < argc; i++) {
         len = ngx_strlen(argv[i]) + 1;
 
@@ -818,11 +822,11 @@ ngx_save_argv(ngx_cycle_t *cycle, int argc, char *const *argv)
         (void) ngx_cpystrn((u_char *) ngx_argv[i], (u_char *) argv[i], len);
     }
 
-    ngx_argv[i] = NULL;
+    ngx_argv[i] = NULL; // 结束标志
 
 #endif
 
-    ngx_os_environ = environ;
+    ngx_os_environ = environ; // 环境变量
 
     return NGX_OK;
 }

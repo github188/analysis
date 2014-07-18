@@ -93,6 +93,9 @@ ngx_time_update(void)
 
     tp = &cached_time[slot];
 
+    // ngx_cached_time总是指向当前槽缓冲的时间
+    // 当前时间相对于槽缓存时间无秒级流逝，继续使用当前槽，仅更新毫秒值
+    // 否则需要换到下一个槽，更新所有相关数据
     if (tp->sec == sec) {
         tp->msec = msec;
         ngx_unlock(&ngx_time_lock);
