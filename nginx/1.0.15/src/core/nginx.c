@@ -205,7 +205,7 @@ main(int argc, char *const *argv)
     ngx_core_conf_t  *ccf;
 
 #if (NGX_FREEBSD)
-    ngx_debug_init();
+    ngx_debug_init(); // 打开freebsd内存调试功能
 #endif
 
     if (ngx_strerror_init() != NGX_OK) {
