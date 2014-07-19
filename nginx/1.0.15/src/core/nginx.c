@@ -838,6 +838,7 @@ ngx_process_options(ngx_cycle_t *cycle)
     u_char  *p;
     size_t   len;
 
+    // 初始化配置前缀和普通前缀
     if (ngx_prefix) {
         len = ngx_strlen(ngx_prefix);
         p = ngx_prefix;
@@ -892,6 +893,7 @@ ngx_process_options(ngx_cycle_t *cycle)
 #endif
     }
 
+    // 初始化配置文件名
     if (ngx_conf_file) {
         cycle->conf_file.len = ngx_strlen(ngx_conf_file);
         cycle->conf_file.data = ngx_conf_file;
@@ -904,6 +906,7 @@ ngx_process_options(ngx_cycle_t *cycle)
         return NGX_ERROR;
     }
 
+    // 重新初始化配置前缀，因为配置文件名可能是绝对路径
     for (p = cycle->conf_file.data + cycle->conf_file.len - 1;
          p > cycle->conf_file.data;
          p--)
