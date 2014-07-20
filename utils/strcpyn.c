@@ -102,6 +102,30 @@ char *str_cpy_n(char *p_dest,
 }
 
 
+// nginx的实现
+char *cpystrn(char *dst, char *src, size_t n)
+{
+    if (n == 0) {
+        return dst;
+    }
+
+    while (--n) {
+        *dst = *src;
+
+        if (*dst == '\0') {
+            return dst;
+        }
+
+        dst++;
+        src++;
+    }
+
+    *dst = '\0';
+
+    return dst;
+}
+
+
 int main(int argc, char *argv[])
 {
 #define DST_SIZE    35

@@ -34,6 +34,7 @@ ngx_os_init(ngx_log_t *log)
 {
     ngx_uint_t  n;
 
+    // 针对不同操作系统的特殊初始化，主要是ngx_os_io结构的初始化
 #if (NGX_HAVE_OS_SPECIFIC_INIT)
     if (ngx_os_specific_init(log) != NGX_OK) {
         return NGX_ERROR;
@@ -45,8 +46,10 @@ ngx_os_init(ngx_log_t *log)
     ngx_pagesize = getpagesize();
     ngx_cacheline_size = NGX_CPU_CACHE_LINE;
 
+    // ngx_pagesize_shift就是ngx_pagesize的2的幂数
     for (n = ngx_pagesize; n >>= 1; ngx_pagesize_shift++) { /* void */ }
 
+    // 获取cpu数目
 #if (NGX_HAVE_SC_NPROCESSORS_ONLN)
     if (ngx_ncpu == 0) {
         ngx_ncpu = sysconf(_SC_NPROCESSORS_ONLN);
@@ -57,8 +60,10 @@ ngx_os_init(ngx_log_t *log)
         ngx_ncpu = 1;
     }
 
+    // 根据cpu的类型初始化ngx_cacheline_size
     ngx_cpuinfo();
 
+    // 获取能进程能打开的文件数，作为能创建的最大socket的数目
     if (getrlimit(RLIMIT_NOFILE, &rlmt) == -1) {
         ngx_log_error(NGX_LOG_ALERT, log, errno,
                       "getrlimit(RLIMIT_NOFILE) failed)");
@@ -67,12 +72,14 @@ ngx_os_init(ngx_log_t *log)
 
     ngx_max_sockets = (ngx_int_t) rlmt.rlim_cur;
 
+    // 非阻塞继承
 #if (NGX_HAVE_INHERITED_NONBLOCK || NGX_HAVE_ACCEPT4)
     ngx_inherited_nonblocking = 1;
 #else
     ngx_inherited_nonblocking = 0;
 #endif
 
+    // 使用缓存的当前时间的秒数初始化随机种子
     srandom(ngx_time());
 
     return NGX_OK;

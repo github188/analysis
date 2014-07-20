@@ -229,16 +229,23 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
             continue;
         }
 
+        // 这个ctx是与模块类型相关的
+        // 比如NGX_CORE_MODULE类型的模块就是ngx_core_module_t类型
         module = ngx_modules[i]->ctx;
 
-        if (module->create_conf) {
+        // ngx_core_module_t的create_conf函数
+        // 它会创建一个ngx_core_conf_t类型的对象
+        if (module->create_conf) { // ngx_core_module_t的create_conf函数
             rv = module->create_conf(cycle);
             if (rv == NULL) {
                 ngx_destroy_pool(pool);
                 return NULL;
             }
 
-            // conf_ctx当前指向模块配置数组，现在保存核心模块创建的配置
+            // conf_ctx现在指向模块配置数组
+            // 对于核心模块来说，元素指针指向ngx_core_module_t.create_conf函
+            // 数创建的ngx_core_conf_t类型的对象，给之
+            // 后的ngx_core_module_t.init_conf函数初始化
             cycle->conf_ctx[ngx_modules[i]->index] = rv;
         }
     }
@@ -291,12 +298,13 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
                        cycle->conf_file.data);
     }
 
+    // 调用ngx_core_module_t的init_conf函数初始化
     for (i = 0; ngx_modules[i]; i++) {
         if (ngx_modules[i]->type != NGX_CORE_MODULE) {
             continue;
         }
 
-        module = ngx_modules[i]->ctx;
+        module = ngx_modules[i]->ctx; // ngx_core_module_t
 
         if (module->init_conf) {
             if (module->init_conf(cycle, cycle->conf_ctx[ngx_modules[i]->index])
@@ -310,9 +318,11 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     }
 
     if (ngx_process == NGX_PROCESS_SIGNALLER) {
+        // 进程角色是信号发送者，比如nginx -s可以停止已有的nginx进程
         return cycle;
     }
 
+    // 就是cycle->conf_ctx[ngx_modules[i]->index]，ngx_core_conf_t类型
     ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
 
     if (ngx_test_config) {
@@ -344,16 +354,18 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     }
 
 
+    // 测试锁文件
     if (ngx_test_lockfile(cycle->lock_file.data, log) != NGX_OK) {
         goto failed;
     }
 
-
+    // 创建目录
     if (ngx_create_pathes(cycle, ccf->user) != NGX_OK) {
         goto failed;
     }
 
 
+    // 创建新的日志文件
     if (cycle->new_log.file == NULL) {
         cycle->new_log.file = ngx_conf_open_file(cycle, &error_log);
         if (cycle->new_log.file == NULL) {

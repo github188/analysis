@@ -40,15 +40,18 @@ ngx_init_setproctitle(ngx_log_t *log)
 
     size = 0;
 
+    // 计算所有环境变量长度
     for (i = 0; environ[i]; i++) {
         size += ngx_strlen(environ[i]) + 1;
     }
 
+    // 为拷贝环境变量分配内存
     p = ngx_alloc(size, log);
     if (p == NULL) {
         return NGX_ERROR;
     }
 
+    // 越过命令行参数
     ngx_os_argv_last = ngx_os_argv[0];
 
     for (i = 0; ngx_os_argv[i]; i++) {
@@ -57,6 +60,7 @@ ngx_init_setproctitle(ngx_log_t *log)
         }
     }
 
+    // 不仅拷贝环境变量，还将environ数组元素指向新的地址以备后用
     for (i = 0; environ[i]; i++) {
         if (ngx_os_argv_last == environ[i]) {
 
@@ -69,7 +73,7 @@ ngx_init_setproctitle(ngx_log_t *log)
         }
     }
 
-    ngx_os_argv_last--;
+    ngx_os_argv_last--; // 环境变量内存区哨兵
 
     return NGX_OK;
 }
