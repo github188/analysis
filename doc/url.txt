@@ -4,3 +4,9 @@ http://www.mpi-sws.org/~druschel/
 
 raft分布式一致性协议
 http://blog.yunnotes.net/index.php/raft_protocol/
+
+online python tutor
+http://www.pythontutor.com/
+
+sina app engine blog
+http://blog.sae.sina.com.cn/
