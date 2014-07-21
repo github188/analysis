@@ -208,10 +208,23 @@ main(int argc, char *const *argv)
     ngx_debug_init(); // 打开freebsd内存调试功能
 #endif
 
+    // 将系统错误信息缓存到ngx_sys_errlist数组
+    // ngx_sys_errlist[errno] <--> error_description
     if (ngx_strerror_init() != NGX_OK) {
         return 1;
     }
 
+    // 获取命令行参数，从而设置各种全局变量
+    // ngx_show_version: 设置则打印版本信息
+    // ngx_show_help: 设置则打印帮助信息
+    // ngx_show_configure: 设置则打印配置信息
+    // ngx_test_config: 设置则测试配置文件
+    // ngx_quiet_mode: 设置则静默模式
+    // ngx_prefix: 前缀字符串
+    // ngx_conf_file: 配置文件名
+    // ngx_conf_params: 配置参数
+    // ngx_signal: 信号字符串
+    // ngx_process：进程角色
     if (ngx_get_options(argc, argv) != NGX_OK) {
         return 1;
     }
@@ -269,20 +282,26 @@ main(int argc, char *const *argv)
 
     /* TODO */ ngx_max_sockets = -1;
 
+    // 时间初始化
     ngx_time_init();
 
+    // pcre正则表达式初始化
 #if (NGX_PCRE)
     ngx_regex_init();
 #endif
 
+    // 获取进程号
     ngx_pid = ngx_getpid();
 
+    // 日志初始化，最坏的情况是使用标准错误作为日志输出
+    // ngx_log_file为具体打开的日志文件，挂在ngx_log.file上
     log = ngx_log_init(ngx_prefix);
     if (log == NULL) {
         return 1;
     }
 
     /* STUB */
+    // SSL初始化
 #if (NGX_OPENSSL)
     ngx_ssl_init(log);
 #endif
@@ -291,10 +310,10 @@ main(int argc, char *const *argv)
      * init_cycle->log is required for signal handlers and
      * ngx_process_options()
      */
-
+    // 初始化init_cycle
     ngx_memzero(&init_cycle, sizeof(ngx_cycle_t));
     init_cycle.log = log;
-    ngx_cycle = &init_cycle;
+    ngx_cycle = &init_cycle; // ngx_cycle暂时指向init_cycle
 
     init_cycle.pool = ngx_create_pool(1024, log);
     if (init_cycle.pool == NULL) {
