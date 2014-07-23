@@ -10,3 +10,7 @@ http://www.pythontutor.com/
 
 sina app engine blog
 http://blog.sae.sina.com.cn/
+
+数独算法，Algorithm X
+http://www.cs.mcgill.ca/~aassaf9/python/algorithm_x.html
+http://en.wikipedia.org/wiki/Knuth%27s_Algorithm_X
