@@ -46,7 +46,6 @@ static void *ngx_palloc_block(ngx_pool_t *pool, int_t size)
     int8_t *p;
     int_t sizep;
     ngx_pool_t *iter;
-    ngx_pool_t *current;
     ngx_pool_t *new_pool;
 
     sizep = (int_t)(pool->data.end - (int8_t *)pool);
@@ -64,12 +63,14 @@ static void *ngx_palloc_block(ngx_pool_t *pool, int_t size)
     new_pool->data.failed = 0;
 
     // 更新current值
-    current = pool->current;
-    for (iter = current; NULL != iter->data.next; iter = iter->data.next) {
+    for (iter = pool->current; NULL != iter->data.next; iter = iter->data.next) {
         if (iter->data.failed > 4) { // 忽略可能分配不到的内存块
             // 倾向于使用新的内存块，而不是失败次数低的
-            current = iter->data.next;
-            iter->current = ((NULL == current) ? new_pool : current);
+            if (NULL == iter->data.next) {
+                iter->current = new_pool;
+            } else {
+                iter->current = iter->data.next;
+            }
         }
 
         // 调到这个函数已经表明所有内存块都分配失败了
