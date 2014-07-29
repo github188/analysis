@@ -28,14 +28,14 @@ struct ngx_pool_large_s {
 };
 
 struct ngx_pool_data_s {
-    int8_t *last;
-    int8_t *end;
+    char *last;
+    char *end;
     ngx_pool_t *next; // 内存池链表
     int_t failed;
 };
 
 struct ngx_pool_s {
-    int_t max_size; // 能容纳的数据大小
+    int_t max_size; // 每个内存块能容纳的数据大小
     ngx_pool_data_t data;
     ngx_pool_t *current; // 当前内存块
 };
@@ -43,13 +43,13 @@ struct ngx_pool_s {
 
 static void *ngx_palloc_block(ngx_pool_t *pool, int_t size)
 {
-    int8_t *p;
+    char *p;
     int_t sizep;
     ngx_pool_t *iter;
     ngx_pool_t *new_pool;
 
-    sizep = (int_t)(pool->data.end - (int8_t *)pool);
-    p = (int8_t *)malloc(sizep);
+    sizep = (int_t)(pool->data.end - (char *)pool);
+    p = (char *)malloc(sizep);
     if (NULL == p) {
         (void)fprintf(stderr, "[ERROR] malloc() failed\n");
 
@@ -61,11 +61,12 @@ static void *ngx_palloc_block(ngx_pool_t *pool, int_t size)
     new_pool->data.end = p + sizep;
     new_pool->data.next = NULL;
     new_pool->data.failed = 0;
+    new_pool->max_size = pool->max_size;
 
     // 更新current值
-    for (iter = pool->current; NULL != iter->data.next; iter = iter->data.next) {
-        if (iter->data.failed > 4) { // 忽略可能分配不到的内存块
-            // 倾向于使用新的内存块，而不是失败次数低的
+    for (iter = pool->current; NULL != iter->data.next; iter = iter->data.next)
+    {
+        if (iter->data.failed > 4) { // 忽略可能分配不到内存的内存块
             if (NULL == iter->data.next) {
                 iter->current = new_pool;
             } else {
@@ -86,7 +87,7 @@ static void *ngx_palloc_block(ngx_pool_t *pool, int_t size)
 
 ngx_pool_t *ngx_create_pool(int_t size)
 {
-    int8_t *p;
+    char *p;
     ngx_pool_t *pool;
 
     // 用户参数过滤
@@ -100,7 +101,7 @@ ngx_pool_t *ngx_create_pool(int_t size)
     }
 
     // 分配内存
-    p = (int8_t *)malloc(size);
+    p = (char *)malloc(size);
     if (NULL == p) {
         (void)fprintf(stderr, "[ERROR] malloc() failed\n");
 
@@ -124,11 +125,54 @@ ngx_pool_t *ngx_create_pool(int_t size)
 
 void *ngx_palloc(ngx_pool_t *pool, int_t size)
 {
-    return NULL;
+    if (pool->max_size < size) {
+        return NULL;
+    } else {
+        char *rslt;
+        ngx_pool_t *p = pool->current;
+
+        while (NULL != p) {
+            if ((int_t)(p->data.end - p->data.last) >= size) {
+                rslt = p->data.last;
+                p->data.last += size;
+                break;
+            }
+
+            p = p->data.next;
+        }
+        if (NULL == p) {
+            rslt = ngx_palloc_block(pool, size);
+        }
+
+        return rslt;
+    }
+}
+
+
+void ngx_destroy_pool(ngx_pool_t* pool)
+{
+    ngx_pool_t *p;
+
+    while (NULL != pool) {
+        p = pool;
+        pool = pool->data.next;
+        free(p);
+    }
+
+    return;
 }
 
 
 int main(int argc, char *argv[], char *env[])
 {
+    ngx_pool_t *pool;
+    int *x;
+
+    pool = ngx_create_pool(4096);
+    x = ngx_palloc(pool, sizeof(*x));
+    *x = 13;
+    (void)fprintf(stderr, "x == %d\n", *x);
+    ngx_destroy_pool(pool);
+
     return EXIT_SUCCESS;
 }
