@@ -324,6 +324,7 @@ main(int argc, char *const *argv)
         return 1;
     }
 
+    // 处理选项
     if (ngx_process_options(&init_cycle) != NGX_OK) {
         return 1;
     }
@@ -694,6 +695,7 @@ ngx_get_options(int argc, char *const *argv)
 
         p = (u_char *) argv[i];
 
+        // 选项必须以-开头
         if (*p++ != '-') {
             ngx_log_stderr(0, "invalid option: \"%s\"", argv[i]);
             return NGX_ERROR;
@@ -859,10 +861,12 @@ ngx_process_options(ngx_cycle_t *cycle)
 
     // 初始化配置前缀和普通前缀
     if (ngx_prefix) {
+        // 存在选项指定的前缀
         len = ngx_strlen(ngx_prefix);
         p = ngx_prefix;
 
         if (!ngx_path_separator(*p)) {
+            // 不是绝对路径
             p = ngx_pnalloc(cycle->pool, len + 1);
             if (p == NULL) {
                 return NGX_ERROR;
@@ -886,6 +890,7 @@ ngx_process_options(ngx_cycle_t *cycle)
             return NGX_ERROR;
         }
 
+        // 使用当前路径作为前缀
         if (ngx_getcwd(p, NGX_MAX_PATH) == 0) {
             ngx_log_stderr(ngx_errno, "[emerg]: " ngx_getcwd_n " failed");
             return NGX_ERROR;
@@ -925,11 +930,12 @@ ngx_process_options(ngx_cycle_t *cycle)
         return NGX_ERROR;
     }
 
-    // 重新初始化配置前缀，因为配置文件名可能是绝对路径
+    // 根据配置文件名重新初始化配置前缀
     for (p = cycle->conf_file.data + cycle->conf_file.len - 1;
          p > cycle->conf_file.data;
          p--)
     {
+        // 反向遍历配置文件名字符串
         if (ngx_path_separator(*p)) {
             cycle->conf_prefix.len = p - ngx_cycle->conf_file.data + 1;
             cycle->conf_prefix.data = ngx_cycle->conf_file.data;
@@ -937,11 +943,13 @@ ngx_process_options(ngx_cycle_t *cycle)
         }
     }
 
+    // 保存用户指定的配置参数
     if (ngx_conf_params) {
         cycle->conf_param.len = ngx_strlen(ngx_conf_params);
         cycle->conf_param.data = ngx_conf_params;
     }
 
+    // 测试配置文件则提升日志级别
     if (ngx_test_config) {
         cycle->log->log_level = NGX_LOG_INFO;
     }

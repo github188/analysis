@@ -122,7 +122,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
         return NULL;
     }
 
-    // 路径数组，每个元素又是一个数组
+    // 路径数组，每个元素是一个数组指针
     n = old_cycle->pathes.nelts ? old_cycle->pathes.nelts : 10;
 
     cycle->pathes.elts = ngx_pcalloc(pool, n * sizeof(ngx_path_t *));
@@ -137,17 +137,19 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     cycle->pathes.pool = pool;
 
 
-    // 打开的文件列表
+    // 获取打开的文件数目
     if (old_cycle->open_files.part.nelts) {
+        // 统计链表所有元素个数
         n = old_cycle->open_files.part.nelts;
         for (part = old_cycle->open_files.part.next; part; part = part->next) {
             n += part->nelts;
         }
-
     } else {
         n = 20;
     }
 
+    // 初始化新打开的文件列表，ngx_open_file_t的结构很简单，只有
+    // fd, name，文件头尾指针及位置指针
     if (ngx_list_init(&cycle->open_files, pool, n, sizeof(ngx_open_file_t))
         != NGX_OK)
     {
@@ -156,7 +158,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     }
 
 
-    // 共享内存
+    // 共享内存的初始化类似于上面打开文件的初始化
     if (old_cycle->shared_memory.part.nelts) {
         n = old_cycle->shared_memory.part.nelts;
         for (part = old_cycle->shared_memory.part.next; part; part = part->next)
