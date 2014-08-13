@@ -612,12 +612,14 @@ ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags)
         c = event_list[i].data.ptr;
 
         instance = (uintptr_t) c & 1;
+
+        // 重新获取连接
         c = (ngx_connection_t *) ((uintptr_t) c & (uintptr_t) ~1);
 
         rev = c->read;
 
         if (c->fd == -1 || rev->instance != instance) {
-
+            // 过期事件
             /*
              * the stale event from a file descriptor
              * that was just closed in this iteration

@@ -387,6 +387,7 @@ main(int argc, char *const *argv)
 
 #if !(NGX_WIN32)
 
+    // 初始化信号处理
     if (ngx_init_signals(cycle->log) != NGX_OK) {
         return 1;
     }
@@ -405,6 +406,7 @@ main(int argc, char *const *argv)
 
 #endif
 
+    // 创建pid文件
     if (ngx_create_pidfile(&ccf->pid, cycle->log) != NGX_OK) {
         return 1;
     }

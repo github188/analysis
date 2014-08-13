@@ -203,10 +203,11 @@ ngx_process_events_and_timers(ngx_cycle_t *cycle)
     ngx_msec_t  timer, delta;
 
     if (ngx_timer_resolution) {
+        // 使用setitimer定时器
         timer = NGX_TIMER_INFINITE;
         flags = 0;
-
     } else {
+        // 自制定时机制
         timer = ngx_event_find_timer();
         flags = NGX_UPDATE_TIME;
 
@@ -241,8 +242,10 @@ ngx_process_events_and_timers(ngx_cycle_t *cycle)
         }
     }
 
+    // delta为处理时间后流逝的时间
     delta = ngx_current_msec;
 
+    // 对于epoll来说，这里就会调用ngx_epoll_process_events
     (void) ngx_process_events(cycle, timer, flags);
 
     delta = ngx_current_msec - delta;
@@ -672,6 +675,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
 #endif
 
+    // 创建连接缓存
     cycle->connections =
         ngx_alloc(sizeof(ngx_connection_t) * cycle->connection_n, cycle->log);
     if (cycle->connections == NULL) {
@@ -680,6 +684,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
     c = cycle->connections;
 
+    // 创建读事件缓存
     cycle->read_events = ngx_alloc(sizeof(ngx_event_t) * cycle->connection_n,
                                    cycle->log);
     if (cycle->read_events == NULL) {
@@ -696,6 +701,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 #endif
     }
 
+    // 创建写事件缓存
     cycle->write_events = ngx_alloc(sizeof(ngx_event_t) * cycle->connection_n,
                                     cycle->log);
     if (cycle->write_events == NULL) {
@@ -711,6 +717,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 #endif
     }
 
+    // 初始化连接缓存
     i = cycle->connection_n;
     next = NULL;
 
@@ -733,10 +740,10 @@ ngx_event_process_init(ngx_cycle_t *cycle)
     cycle->free_connection_n = cycle->connection_n;
 
     /* for each listening socket */
-
     ls = cycle->listening.elts;
     for (i = 0; i < cycle->listening.nelts; i++) {
 
+        // 从缓存中取走一个连接
         c = ngx_get_connection(ls[i].fd, cycle->log);
 
         if (c == NULL) {
@@ -745,6 +752,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
         c->log = &ls[i].log;
 
+        // ngx_connection_t和ngx_listening_t相互挂着，几个意思
         c->listening = &ls[i];
         ls[i].connection = c;
 
@@ -815,7 +823,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
 #else
 
-        rev->handler = ngx_event_accept;
+        rev->handler = ngx_event_accept;  // 用于接收连接
 
         if (ngx_use_accept_mutex) {
             continue;

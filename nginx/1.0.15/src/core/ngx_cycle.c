@@ -260,6 +260,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     // 初始化conf
     ngx_memzero(&conf, sizeof(ngx_conf_t));
     /* STUB: init array ? */
+    // 配置命令字符串数组
     conf.args = ngx_array_create(pool, 10, sizeof(ngx_str_t));
     if (conf.args == NULL) {
         ngx_destroy_pool(pool);

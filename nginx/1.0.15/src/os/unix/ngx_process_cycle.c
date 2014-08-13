@@ -95,6 +95,7 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
     ngx_listening_t   *ls;
     ngx_core_conf_t   *ccf;
 
+    // 设置进程信号屏蔽字
     sigemptyset(&set);
     sigaddset(&set, SIGCHLD);
     sigaddset(&set, SIGALRM);
@@ -115,6 +116,7 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
     sigemptyset(&set);
 
 
+    // 设置进程名称
     size = sizeof(master_process);
 
     for (i = 0; i < ngx_argc; i++) {
@@ -134,8 +136,11 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
 
     ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
 
+    // 启动工作进程
     ngx_start_worker_processes(cycle, ccf->worker_processes,
                                NGX_PROCESS_RESPAWN);
+
+    // 启动缓存管理进程
     ngx_start_cache_manager_processes(cycle, 0);
 
     ngx_new_binary = 0;
@@ -355,7 +360,7 @@ ngx_start_worker_processes(ngx_cycle_t *cycle, ngx_int_t n, ngx_int_t type)
     ch.command = NGX_CMD_OPEN_CHANNEL;
 
     for (i = 0; i < n; i++) {
-
+        // 获得cpu亲缘性
         cpu_affinity = ngx_get_cpu_affinity(i);
 
         ngx_spawn_process(cycle, ngx_worker_process_cycle, NULL,
@@ -723,6 +728,7 @@ ngx_worker_process_cycle(ngx_cycle_t *cycle, void *data)
 
     ngx_process = NGX_PROCESS_WORKER;
 
+    // 初始化工作进程环境
     ngx_worker_process_init(cycle, 1);
 
     ngx_setproctitle("worker process");
@@ -773,6 +779,7 @@ ngx_worker_process_cycle(ngx_cycle_t *cycle, void *data)
     }
 #endif
 
+    // 事件循环
     for ( ;; ) {
 
         if (ngx_exiting) {
@@ -799,6 +806,7 @@ ngx_worker_process_cycle(ngx_cycle_t *cycle, void *data)
 
         ngx_log_debug0(NGX_LOG_DEBUG_EVENT, cycle->log, 0, "worker cycle");
 
+        // 处理io事件及超时事件
         ngx_process_events_and_timers(cycle);
 
         if (ngx_terminate) {
