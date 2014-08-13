@@ -196,7 +196,8 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     ngx_queue_init(&cycle->reusable_connections_queue);
 
 
-    // 模块配置数组列表
+    // 创建模块配置数组列表，每个元素是一个指针，
+    // 指向保存了模块的配置对象的create_conf回调创建的配置
     cycle->conf_ctx = ngx_pcalloc(pool, ngx_max_module * sizeof(void *));
     if (cycle->conf_ctx == NULL) {
         ngx_destroy_pool(pool);
@@ -204,7 +205,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     }
 
 
-    // 主机名
+    // 初始化主机名
     if (gethostname(hostname, NGX_MAXHOSTNAMELEN) == -1) {
         ngx_log_error(NGX_LOG_EMERG, log, ngx_errno, "gethostname() failed");
         ngx_destroy_pool(pool);
@@ -274,21 +275,26 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
 
     conf.ctx = cycle->conf_ctx; // 接管模块配置数组
     conf.cycle = cycle;
-    conf.pool = pool;
+    conf.pool = pool; // 挂上cycle的内存池
     conf.log = log;
     conf.module_type = NGX_CORE_MODULE;
-    conf.cmd_type = NGX_MAIN_CONF;
+    conf.cmd_type = NGX_MAIN_CONF; // 命令类型
 
 #if 0
     log->log_level = NGX_LOG_DEBUG_ALL;
 #endif
 
+    // ngx_conf_param函数让ngx_conf_t类型的对象conf挂一个
+    // 临时的ngx_conf_file_t，再去调用ngx_conf_parse函数解
+    // 析用户指定的配置参数（cycle->conf_param），ngx_conf_parse函数
+    // 会以parse_param（还有parse_file和parse_block两种方式）方式执行解析循环
     if (ngx_conf_param(&conf) != NGX_CONF_OK) {
         environ = senv;
         ngx_destroy_cycle_pools(&conf);
         return NULL;
     }
 
+    // 解析配置文件
     if (ngx_conf_parse(&conf, &cycle->conf_file) != NGX_CONF_OK) {
         environ = senv;
         ngx_destroy_cycle_pools(&conf);
