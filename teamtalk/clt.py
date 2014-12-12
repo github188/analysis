@@ -4,6 +4,7 @@
 
 import sys
 import struct
+import hashlib
 import tornado.concurrent
 import tornado.tcpclient
 import tornado.ioloop
@@ -122,8 +123,8 @@ class TTClient(object):
             ip2 = body[12 + ip1_length : 12 + ip1_length + ip2_length]
             (msg_port, ) = struct.unpack("!H", body[-2:])
 
-            username = "evieo"
-            password = "evieo"
+            username = "A"
+            password = hashlib.md5("123456").hexdigest()
             client_version = "1.9"
             pkg_body = ""
             pkg_body += struct.pack("!I", len(username))
