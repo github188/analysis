@@ -91,7 +91,17 @@ class TTClient(object):
         }
 
     def __on_user_check(self, ft):
-        print "__on_user_check"
+        msg_tuples = None
+        try:
+            msg_tuples = ft.result()
+        except Exception as err:
+            print "failed check user:", err
+            return
+        for tp in msg_tuples:
+            (pdu_length, module_id, command_id, version, reserved, body) = tp
+            (server_time, ) = struct.unpack("!I", body[0 : 4])
+            (result, ) = struct.unpack("!I", body[4 : 8])
+            print result
 
     def __on_login(self, ft):
         msg_tuples = None
