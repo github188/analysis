@@ -41,16 +41,22 @@ class TTMsgParser(object):
 
 
 class TTTCPClient(object):
-    def __init__(self):
+    def __init__(self, *req):
         self.__stm = None
         self.__msg_parser = TTMsgParser()
         self.__tcpclt = tornado.tcpclient.TCPClient()
+        self.__req = req
+        self.__server = None
 
     def get_msg_tuples(self, io_loop, **kwargs):
+        self.__server = kwargs
         self.__msg_tuples = tornado.concurrent.Future()
         ft = self.__tcpclt.connect(**kwargs)
         io_loop.add_future(ft, self.__on_connect)
         return self.__msg_tuples
+
+    def closed(self):
+        return None == self.__stm or self.__stm.closed()
 
     def __on_connect(self, ft):
         try:
@@ -60,9 +66,10 @@ class TTTCPClient(object):
             self.__msg_tuples.set_exception(err)
             return
 
+        self.__stm.set_close_callback(self.__on_close)
         self.__stm.read_bytes(num_bytes = 1024,
                               callback = self.__on_recv, partial = True)
-        self.__stm.write(self.__msg_parser.pack_tt_msg(1, 1, ""))
+        self.__stm.write(self.__msg_parser.pack_tt_msg(*self.__req))
 
     def __on_recv(self, data):
         self.__stm.read_bytes(num_bytes = 1024,
@@ -70,15 +77,21 @@ class TTTCPClient(object):
         msg_tuples = self.__msg_parser.unpack_tt_msg(data)
         self.__msg_tuples.set_result(msg_tuples)
 
+    def __on_close(self):
+        print "connection closed by peer", self.__server
+
 
 class TTClient(object):
     def __init__(self):
-        self.__login_clt = TTTCPClient()
-        self.__msg_clt = TTTCPClient()
+        self.__login_clt = None
+        self.__msg_clt = None
         self.__iolp = tornado.ioloop.IOLoop.instance()
         self.__rsps = {
             2: self.__on_login,
         }
+
+    def __on_user_check(self, ft):
+        print "__on_user_check"
 
     def __on_login(self, ft):
         msg_tuples = None
@@ -97,15 +110,31 @@ class TTClient(object):
                 "!I", body[8 + ip1_length : 12 + ip1_length]
             )
             ip2 = body[12 + ip1_length : 12 + ip1_length + ip2_length]
-            (port, ) = struct.unpack("!H", body[-2:])
+            (msg_port, ) = struct.unpack("!H", body[-2:])
 
-            print result, ip1_length, ip1, ip2_length, ip2, port
+            username = "evieo"
+            password = "evieo"
+            client_version = "1.9"
+            pkg_body = ""
+            pkg_body += struct.pack("!I", len(username))
+            pkg_body += username
+            pkg_body += struct.pack("!I", len(password))
+            pkg_body += password
+            pkg_body += struct.pack("!2I", 1, 0x12)
+            pkg_body += struct.pack("!I", len(client_version))
+            pkg_body += client_version
+            self.__msg_clt = TTTCPClient(1, 3, pkg_body)
+            ft_msg_tuples = self.__msg_clt.get_msg_tuples(
+                self.__iolp, host = ip1, port = msg_port
+            )
+            self.__iolp.add_future(ft_msg_tuples, self.__on_user_check)
 
     def run(self):
-        msg_tuples = self.__login_clt.get_msg_tuples(
+        self.__login_clt = TTTCPClient(1, 1, "")
+        ft_msg_tuples = self.__login_clt.get_msg_tuples(
             self.__iolp, host = "120.24.217.4", port = 8008
         )
-        self.__iolp.add_future(msg_tuples, self.__on_login)
+        self.__iolp.add_future(ft_msg_tuples, self.__on_login)
         self.__iolp.start()
 
 
