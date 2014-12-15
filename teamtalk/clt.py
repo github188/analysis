@@ -56,6 +56,11 @@ class TTTCPClient(object):
         io_loop.add_future(ft, self.__on_connect)
         return self.__msg_tuples
 
+    def close(self):
+        if self.__stm:
+            self.__stm.close()
+            self.__stm = None
+
     def closed(self):
         return None == self.__stm or self.__stm.closed()
 
@@ -79,7 +84,7 @@ class TTTCPClient(object):
         self.__msg_tuples.set_result(msg_tuples)
 
     def __on_close(self):
-        print "connection closed by peer", self.__server
+        print "connection to", self.__server, "closed"
 
 
 class TTClient(object):
@@ -93,16 +98,67 @@ class TTClient(object):
 
     def __on_user_check(self, ft):
         msg_tuples = None
+
         try:
             msg_tuples = ft.result()
         except Exception as err:
             print "failed check user:", err
             return
+
         for tp in msg_tuples:
             (pdu_length, module_id, command_id, version, reserved, body) = tp
-            (server_time, ) = struct.unpack("!I", body[0 : 4])
-            (result, ) = struct.unpack("!I", body[4 : 8])
-            print result
+            (server_time, result) = struct.unpack("!2I", body[0 : 8])
+            if result:
+                self.__msg_clt.close()
+                print "[ERROR] login failed"
+                break;
+
+            body = body[8 : ]
+            (online_status, ) = struct.unpack("!I", body[0 : 4])
+            (user_id_url_len, ) = struct.unpack("!I", body[4 : 8])
+            user_id_url = body[8 : 8 + user_id_url_len]
+
+            body = body[8 + user_id_url_len : ]
+            (nickname_len, ) = struct.unpack("!I", body[0 : 4])
+            nickname = body[4 : 4 + nickname_len]
+
+            body = body[4 + nickname_len : ]
+            (avatar_url_len, ) = struct.unpack("!I", body[0 : 4])
+            avatar_url = body[4 : 4 + avatar_url_len]
+
+            body = body[4 + avatar_url_len : ]
+            (title_len, ) = struct.unpack("!I", body[0 : 4])
+            title = body[4 : 4 + title_len]
+
+            body = body[4 + title_len : ]
+            (position_len, ) = struct.unpack("!I", body[0 : 4])
+            position = body[4 : 4 + position_len]
+
+            body = body[4 + position_len : ]
+            (role_status, sex) = struct.unpack("!2I", body[0 : 8])
+
+            body = body[8 : ]
+            (depart_id_url_len, ) = struct.unpack("!I", body[0 : 4])
+            depart_id_url = body[4 : 4 + depart_id_url_len]
+
+            body = body[4 + depart_id_url_len : ]
+            (job_num, ) = struct.unpack("!I", body[0 : 4])
+
+            body = body[4 : ]
+            (telphone_len, ) = struct.unpack("!I", body[0 : 4])
+            telphone = body[4 : 4 + telphone_len]
+
+            body = body[4 + telphone_len : ]
+            (email_len, ) = struct.unpack("!I", body[0 : 4])
+            email = body[4 : 4 + email_len]
+
+            body = body[4 + email_len : ]
+            (token_len, ) = struct.unpack("!I", body[0 : 4])
+            token = body[4 : 4 + token_len]
+
+            print server_time, result, online_status, user_id_url
+            print nickname, avatar_url, title, position, role_status, sex
+            print depart_id_url, job_num, telphone, email, token
 
     def __on_login(self, ft):
         msg_tuples = None
@@ -123,8 +179,8 @@ class TTClient(object):
             ip2 = body[12 + ip1_length : 12 + ip1_length + ip2_length]
             (msg_port, ) = struct.unpack("!H", body[-2:])
 
-            username = "A"
-            password = hashlib.md5("123456").hexdigest()
+            username = "lijia"
+            password = hashlib.md5("lijia").hexdigest()
             client_version = "1.9"
             pkg_body = ""
             pkg_body += struct.pack("!I", len(username))
