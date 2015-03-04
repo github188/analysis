@@ -17,16 +17,16 @@ class CountingSort(object):
         return self.__countingSort(datalist, *self.__getMinMax(datalist))
 
     def __countingSort(self, datalist, nmin, nmax):
-        span_sz = nmax - nmin + 1
+        span_sz = nmax - nmin + 1 # 输入数组的值区间长度
         span_list = []
         rslt_list = list(datalist)
-        for i in xrange(span_sz):
+        for i in xrange(span_sz): # 清零
             span_list.append(0)
-        for x in datalist:
+        for x in datalist: # 遍历并计数
             span_list[x - nmin] += 1
-        for i in xrange(1, span_sz):
+        for i in xrange(1, span_sz): # 生成索引信息
             span_list[i] += span_list[i - 1]
-        for x in datalist[: : -1]:
+        for x in datalist[: : -1]: # 反向遍历并排序输出
             rslt_list[span_list[x - nmin] - 1] = x
             span_list[x - nmin] -= 1
         return tuple(rslt_list)

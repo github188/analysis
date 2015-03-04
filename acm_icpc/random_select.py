@@ -1,6 +1,8 @@
 #! /usr/bin/env python
 # -*- coding:utf-8 -*-
 
+''' notfinishedyet '''
+
 
 def random_select(dataset, n):
     tmpset = list(dataset)
