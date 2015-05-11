@@ -31,13 +31,14 @@ set expandtab
 set tabstop=4
 set shiftwidth=4
 set backspace=indent,eol,start
-set colorcolumn=80
+" set colorcolumn=80
 set cindent
 set bg=dark
 set hlsearch
 set ruler
 set showmode
 set nolinebreak
+colorscheme blue
 
 map <F12> :A<CR>
 
@@ -68,3 +69,14 @@ inoremap { {}<LEFT>
 " 自动检测文件类型
 filetype on
 filetype plugin on
+
+" 获取当前路径，将$HOME转化为~
+function! CurDir()
+    let curdir = substitute(getcwd(), $HOME, "~", "g")
+    return curdir
+endfunction
+
+" 状态栏
+set laststatus=2      " 总是显示状态栏
+highlight StatusLine cterm=bold ctermfg=yellow ctermbg=blue
+" set statusline=[%n]\ %f%m%r%h\ \|\ \ pwd:\ %{CurDir()}\ \ \|%=\|\ %l,%c\ %p%%\ \|\ ascii=%b,hex=%b%{((&fenc==\"\")?\"\":\"\ \|\ \".&fenc)}\ \|\ %{$USER}@%{hostname()}
