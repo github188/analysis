@@ -14,6 +14,10 @@
 " install a.vim:
 " cd ~/.vim/bundle
 " git clone https://github.com/vim-scripts/a.vim.git
+"
+" install minibufexpl
+" cd ~/.vim/bundle
+" git clone https://github.com/fholgado/minibufexpl.vim.git
 
 set nocompatible
 
@@ -40,7 +44,7 @@ set showmode
 set nolinebreak
 colorscheme blue
 
-map <F12> :A<CR>
+map <F2> :MBEToggle<CR>
 
 map <F3> :NERDTreeToggle<CR>
 
@@ -55,6 +59,8 @@ imap <C-l> <right>
 
 let Tlist_Use_Right_Window=1
 map <F4> :Tlist<CR>
+
+map <F12> :A<CR>
 
 " 尾部空格删除
 autocmd BufWrite * execute ":mark z"
