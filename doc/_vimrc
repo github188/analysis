@@ -45,6 +45,7 @@ set nolinebreak
 colorscheme blue
 
 map <F2> :MBEToggle<CR>
+map <C-x> :w<CR>:MBEbd<CR>
 
 map <F3> :NERDTreeToggle<CR>
 
