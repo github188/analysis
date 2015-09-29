@@ -36,7 +36,7 @@ set tabstop=4
 set shiftwidth=4
 set backspace=indent,eol,start
 " set colorcolumn=80
-set cindent
+set smartindent
 set bg=dark
 set hlsearch
 set ruler
@@ -76,6 +76,8 @@ inoremap { {}<LEFT>
 " 自动检测文件类型
 filetype on
 filetype plugin on
+autocmd FileType html source ~/.vim/myvim/html.vim
+autocmd FileType html source ~/.vim/myvim/js.vim
 
 " 获取当前路径，将$HOME转化为~
 function! CurDir()
