@@ -18,6 +18,10 @@
 " install minibufexpl
 " cd ~/.vim/bundle
 " git clone https://github.com/fholgado/minibufexpl.vim.git
+"
+" install indentLine
+" cd ~/.vim/bundle
+" git clone https://github.com/Yggdroot/indentLine.git
 
 set nocompatible
 
@@ -35,14 +39,14 @@ set expandtab
 set tabstop=4
 set shiftwidth=4
 set backspace=indent,eol,start
-" set colorcolumn=80
+set colorcolumn=80
 set smartindent
 set bg=dark
 set hlsearch
 set ruler
 set showmode
 set nolinebreak
-colorscheme blue
+colorscheme desert
 
 map <F2> :MBEToggle<CR>
 map <C-x> :w<CR>:MBEbd<CR>
@@ -77,7 +81,9 @@ inoremap { {}<LEFT>
 filetype on
 filetype plugin on
 autocmd FileType html source ~/.vim/myvim/html.vim
-autocmd FileType html source ~/.vim/myvim/js.vim
+autocmd FileType js source ~/.vim/myvim/js.vim
+autocmd FileType xml source ~/.vim/myvim/xml.vim
+autocmd FileType c,cc,cpp,cxx,php,py,lua,sh,java,txt,go source ~/.vim/myvim/other.vim
 
 " 获取当前路径，将$HOME转化为~
 function! CurDir()
@@ -89,3 +95,6 @@ endfunction
 set laststatus=2      " 总是显示状态栏
 highlight StatusLine cterm=bold ctermfg=yellow ctermbg=blue
 " set statusline=[%n]\ %f%m%r%h\ \|\ \ pwd:\ %{CurDir()}\ \ \|%=\|\ %l,%c\ %p%%\ \|\ ascii=%b,hex=%b%{((&fenc==\"\")?\"\":\"\ \|\ \".&fenc)}\ \|\ %{$USER}@%{hostname()}
+
+let g:indentLine_char = '┊'
+let g:indentLine_color_term = 1
